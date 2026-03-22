@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'features/map/map_screen.dart';
+import 'features/home/home_screen.dart';
 
 void main() {
   runApp(const SanBidetApp());
@@ -17,7 +17,7 @@ class SanBidetApp extends StatelessWidget {
         colorSchemeSeed: const Color(0xFF1A6B3C),
         useMaterial3: true,
       ),
-      home: const MapScreen(),
+      home: const HomeScreen(),
     );
   }
 }
