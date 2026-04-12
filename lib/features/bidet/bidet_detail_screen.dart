@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../services/firestore_service.dart';
+import '../../services/supabase_service.dart';
 import 'bidet_model.dart';
 
 class BidetDetailScreen extends StatelessWidget {
@@ -59,7 +59,7 @@ class BidetDetailScreen extends StatelessWidget {
                   spacing: 8,
                   children: [
                     _badge(bidet.typeLabel),
-                    _badge(distance),
+                    if (distance.isNotEmpty) _badge(distance),
                     _badge('Free'),
                   ],
                 ),
@@ -79,8 +79,6 @@ class BidetDetailScreen extends StatelessWidget {
                     '${bidet.createdAt.day}/${bidet.createdAt.month}/${bidet.createdAt.year}'),
                 _detailRow('Total ratings', '${bidet.ratingCount}'),
                 const SizedBox(height: 20),
-
-                // Rate button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -109,7 +107,9 @@ class BidetDetailScreen extends StatelessWidget {
     return Row(
       children: List.generate(5, (i) {
         return Icon(
-          i < rating.round() ? Icons.star_rounded : Icons.star_outline_rounded,
+          i < rating.round()
+              ? Icons.star_rounded
+              : Icons.star_outline_rounded,
           color: Colors.amber.shade300,
           size: 18,
         );
@@ -136,8 +136,7 @@ class BidetDetailScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label,
-              style:
-                  const TextStyle(fontSize: 13, color: Colors.grey)),
+              style: const TextStyle(fontSize: 13, color: Colors.grey)),
           Text(value,
               style: const TextStyle(
                   fontSize: 13, fontWeight: FontWeight.w600)),
@@ -153,7 +152,8 @@ class BidetDetailScreen extends StatelessWidget {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setState) => AlertDialog(
           title: const Text('Rate this bidet',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              style:
+                  TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
           content: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(5, (i) {
@@ -178,7 +178,7 @@ class BidetDetailScreen extends StatelessWidget {
               onPressed: selected == 0
                   ? null
                   : () async {
-                      await FirestoreService()
+                      await SupabaseService()
                           .rateBidet(bidet.id, selected.toDouble());
                       if (ctx.mounted) Navigator.pop(ctx);
                       if (context.mounted) {

@@ -1,51 +1,55 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 class Bidet {
   final String id;
   final String placeName;
   final String floor;
   final String type;
-  final GeoPoint location;
+  final double latitude;
+  final double longitude;
   final double rating;
   final int ratingCount;
   final DateTime createdAt;
+  final String status;
 
   Bidet({
     required this.id,
     required this.placeName,
     required this.floor,
     required this.type,
-    required this.location,
+    required this.latitude,
+    required this.longitude,
     required this.rating,
     required this.ratingCount,
     required this.createdAt,
+    this.status = 'pending',
   });
 
-  factory Bidet.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  factory Bidet.fromMap(Map<String, dynamic> data) {
     return Bidet(
-      id: doc.id,
-      placeName: data['placeName'] ?? '',
+      id: data['id'] ?? '',
+      placeName: data['place_name'] ?? '',
       floor: data['floor'] ?? '',
       type: data['type'] ?? 'spray_hose',
-      location: data['location'] as GeoPoint,
+      latitude: (data['latitude'] ?? 0.0).toDouble(),
+      longitude: (data['longitude'] ?? 0.0).toDouble(),
       rating: (data['rating'] ?? 0.0).toDouble(),
-      ratingCount: data['ratingCount'] ?? 0,
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
+      ratingCount: data['rating_count'] ?? 0,
+      createdAt: DateTime.parse(
+          data['created_at'] ?? DateTime.now().toIso8601String()),
+      status: data['status'] ?? 'pending',
     );
   }
 
   Map<String, dynamic> toMap() => {
-        'placeName': placeName,
+        'place_name': placeName,
         'floor': floor,
         'type': type,
-        'location': location,
+        'latitude': latitude,
+        'longitude': longitude,
         'rating': rating,
-        'ratingCount': ratingCount,
-        'createdAt': Timestamp.fromDate(createdAt),
+        'rating_count': ratingCount,
+        'status': status,
       };
 
-  // Display helper
   String get typeLabel {
     switch (type) {
       case 'bidet_seat':
@@ -56,6 +60,4 @@ class Bidet {
         return 'Spray hose';
     }
   }
-
-  String get distanceLabel => ''; // filled in by location service later
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../services/auth_service.dart';
 import '../map/map_screen.dart';
 import '../admin/admin_screen.dart';
 import 'signup_screen.dart';
@@ -14,12 +15,11 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _auth = AuthService();
   bool _loading = false;
   String? _error;
 
   static const _green = Color(0xFF1A6B3C);
-  static const _adminEmail = 'admin@sanbidet.com';
-  static const _adminPassword = 'admin123';
 
   @override
   void dispose() {
@@ -30,34 +30,35 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _login() async {
     setState(() { _loading = true; _error = null; });
-    await Future.delayed(const Duration(milliseconds: 600));
+    try {
+      await _auth.signIn(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+      );
 
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
+      if (!mounted) return;
 
-    if (email.isEmpty || password.isEmpty) {
-      setState(() {
-        _error = 'Please enter your email and password.';
-        _loading = false;
-      });
-      return;
-    }
-
-    if (widget.isAdmin) {
-      if (email == _adminEmail && password == _adminPassword) {
-        if (!mounted) return;
+      if (widget.isAdmin) {
+        final admin = await _auth.isAdmin();
+        if (!admin) {
+          await _auth.signOut();
+          setState(() {
+            _error = 'This account does not have admin access.';
+            _loading = false;
+          });
+          return;
+        }
         Navigator.pushReplacement(context,
             MaterialPageRoute(builder: (_) => const AdminScreen()));
       } else {
-        setState(() {
-          _error = 'Invalid admin credentials.';
-          _loading = false;
-        });
+        Navigator.pushReplacement(context,
+            MaterialPageRoute(builder: (_) => const MapScreen()));
       }
-    } else {
-      if (!mounted) return;
-      Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => const MapScreen()));
+    } catch (e) {
+      setState(() {
+        _error = 'Invalid email or password.';
+        _loading = false;
+      });
     }
   }
 
@@ -67,7 +68,6 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          // Green header
           Container(
             width: double.infinity,
             decoration: const BoxDecoration(
@@ -83,7 +83,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Back button
                     GestureDetector(
                       onTap: () => Navigator.pop(context),
                       child: Container(
@@ -127,40 +126,12 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
-
-          // Form
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(28),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (widget.isAdmin) ...[
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0F8F3),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                            color: _green.withOpacity(0.2)),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.info_outline,
-                              color: _green, size: 16),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Demo — Email: admin@sanbidet.com\nPassword: admin123',
-                              style: TextStyle(
-                                  fontSize: 12, color: _green),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
                   _field('Email', _emailController,
                       hint: 'you@email.com',
                       keyboard: TextInputType.emailAddress),
@@ -180,9 +151,11 @@ class _LoginScreenState extends State<LoginScreen> {
                           const Icon(Icons.error_outline,
                               color: Colors.red, size: 16),
                           const SizedBox(width: 8),
-                          Text(_error!,
-                              style: const TextStyle(
-                                  color: Colors.red, fontSize: 13)),
+                          Expanded(
+                            child: Text(_error!,
+                                style: const TextStyle(
+                                    color: Colors.red, fontSize: 13)),
+                          ),
                         ],
                       ),
                     ),

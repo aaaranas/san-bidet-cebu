@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../services/auth_service.dart';
 import '../map/map_screen.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -11,7 +12,9 @@ class SignupScreen extends StatefulWidget {
 class _SignupScreenState extends State<SignupScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _auth = AuthService();
   bool _loading = false;
+  String? _error;
 
   static const _green = Color(0xFF1A6B3C);
 
@@ -23,11 +26,21 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   Future<void> _signup() async {
-    setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
-    Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => const MapScreen()));
+    setState(() { _loading = true; _error = null; });
+    try {
+      await _auth.signUp(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+      );
+      if (!mounted) return;
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) => const MapScreen()));
+    } catch (e) {
+      setState(() {
+        _error = 'Could not create account. Try again.';
+        _loading = false;
+      });
+    }
   }
 
   @override
@@ -36,7 +49,6 @@ class _SignupScreenState extends State<SignupScreen> {
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          // Green header
           Container(
             width: double.infinity,
             decoration: const BoxDecoration(
@@ -67,51 +79,57 @@ class _SignupScreenState extends State<SignupScreen> {
                     const SizedBox(height: 24),
                     const Icon(Icons.wc, color: Colors.white, size: 40),
                     const SizedBox(height: 10),
-                    const Text(
-                      'Create account',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
+                    const Text('Create account',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5)),
                     const SizedBox(height: 6),
                     Text(
-                      'Join the community and start\nmapping bidets across Cebu.',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.75),
-                        fontSize: 14,
-                        height: 1.5,
-                      ),
-                    ),
+                        'Join the community and start\nmapping bidets across Cebu.',
+                        style: TextStyle(
+                            color: Colors.white.withOpacity(0.75),
+                            fontSize: 14)),
                   ],
                 ),
               ),
             ),
           ),
-
-          // Form
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(28),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 8),
-                  _buildField(
-                    'Email',
-                    _emailController,
-                    hint: 'you@email.com',
-                    keyboard: TextInputType.emailAddress,
-                  ),
+                  _buildField('Email', _emailController,
+                      hint: 'you@email.com',
+                      keyboard: TextInputType.emailAddress),
                   const SizedBox(height: 16),
-                  _buildField(
-                    'Password',
-                    _passwordController,
-                    hint: 'At least 6 characters',
-                    obscure: true,
-                  ),
+                  _buildField('Password', _passwordController,
+                      hint: 'At least 6 characters', obscure: true),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline,
+                              color: Colors.red, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(_error!,
+                                style: const TextStyle(
+                                    color: Colors.red, fontSize: 13)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 28),
                   SizedBox(
                     width: double.infinity,
@@ -120,7 +138,8 @@ class _SignupScreenState extends State<SignupScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _green,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14)),
                         elevation: 0,
@@ -130,13 +149,12 @@ class _SignupScreenState extends State<SignupScreen> {
                               height: 18,
                               width: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Text(
-                              'Create account',
+                                  strokeWidth: 2,
+                                  color: Colors.white))
+                          : const Text('Create account',
                               style: TextStyle(
-                                  fontWeight: FontWeight.w700, fontSize: 15),
-                            ),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15)),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -147,7 +165,8 @@ class _SignupScreenState extends State<SignupScreen> {
                         text: TextSpan(
                           text: 'Already have an account? ',
                           style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 13),
+                              color: Colors.grey.shade500,
+                              fontSize: 13),
                           children: const [
                             TextSpan(
                               text: 'Sign in',
@@ -169,24 +188,18 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  Widget _buildField(
-    String label,
-    TextEditingController controller, {
-    String hint = '',
-    bool obscure = false,
-    TextInputType keyboard = TextInputType.text,
-  }) {
+  Widget _buildField(String label, TextEditingController controller,
+      {String hint = '',
+      bool obscure = false,
+      TextInputType keyboard = TextInputType.text}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.grey.shade600,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
+        Text(label,
+            style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         TextFormField(
           controller: controller,
@@ -196,8 +209,8 @@ class _SignupScreenState extends State<SignupScreen> {
             hintText: hint,
             hintStyle:
                 TextStyle(color: Colors.grey.shade400, fontSize: 13),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14, vertical: 13),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(color: Colors.grey.shade300),

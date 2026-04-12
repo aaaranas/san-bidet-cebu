@@ -1,7 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import '../../services/firestore_service.dart';
+import '../../services/supabase_service.dart';
 import '../../services/location_service.dart';
 import 'bidet_model.dart';
 
@@ -20,7 +19,7 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
   bool _isSubmitting = false;
   Position? _currentPosition;
 
-  final _firestoreService = FirestoreService();
+  final _supabaseService = SupabaseService();
   final _locationService = LocationService();
 
   static const _green = Color(0xFF1A6B3C);
@@ -60,7 +59,8 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please capture your location first.')),
+        const SnackBar(
+            content: Text('Please capture your location first.')),
       );
       return;
     }
@@ -72,22 +72,21 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
       placeName: _placeController.text.trim(),
       floor: _floorController.text.trim(),
       type: _selectedType,
-      location: GeoPoint(
-        _currentPosition!.latitude,
-        _currentPosition!.longitude,
-      ),
+      latitude: _currentPosition!.latitude,
+      longitude: _currentPosition!.longitude,
       rating: 0,
       ratingCount: 0,
       createdAt: DateTime.now(),
     );
 
-    await _firestoreService.addBidet(bidet);
+    await _supabaseService.addBidet(bidet);
 
     if (mounted) {
       setState(() => _isSubmitting = false);
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bidet added! Thank you 🚿')),
+        const SnackBar(
+            content: Text('Bidet submitted for review! 🚿')),
       );
     }
   }
@@ -122,7 +121,8 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
             const SizedBox(height: 6),
             TextFormField(
               controller: _floorController,
-              decoration: _inputDecoration('e.g. 3rd floor, near cinemas'),
+              decoration:
+                  _inputDecoration('e.g. 3rd floor, near cinemas'),
               validator: (v) =>
                   v == null || v.isEmpty ? 'Enter the location' : null,
             ),
@@ -138,13 +138,16 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
                     onTap: () => setState(() => _selectedType = t.$1),
                     child: Container(
                       margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      padding:
+                          const EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
                         color: selected
                             ? _green.withOpacity(0.1)
                             : Colors.transparent,
                         border: Border.all(
-                          color: selected ? _green : Colors.grey.shade300,
+                          color: selected
+                              ? _green
+                              : Colors.grey.shade300,
                         ),
                         borderRadius: BorderRadius.circular(20),
                       ),
@@ -156,7 +159,9 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
                           fontWeight: selected
                               ? FontWeight.w600
                               : FontWeight.normal,
-                          color: selected ? _green : Colors.grey.shade600,
+                          color: selected
+                              ? _green
+                              : Colors.grey.shade600,
                         ),
                       ),
                     ),
@@ -177,7 +182,9 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: _green,
                 side: BorderSide(
-                  color: _currentPosition != null ? _green : Colors.grey.shade300,
+                  color: _currentPosition != null
+                      ? _green
+                      : Colors.grey.shade300,
                 ),
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
@@ -201,7 +208,8 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
                           strokeWidth: 2, color: Colors.white),
                     )
                   : const Text('Submit bidet location',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
+                      style:
+                          TextStyle(fontWeight: FontWeight.w600)),
             ),
           ],
         ),
@@ -212,7 +220,8 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
   InputDecoration _inputDecoration(String hint) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+      hintStyle:
+          TextStyle(color: Colors.grey.shade400, fontSize: 13),
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(

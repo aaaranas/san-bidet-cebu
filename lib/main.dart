@@ -1,7 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'features/home/home_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://xwpmgvrvxqrvlmnxdvyp.supabase.co',
+    anonKey: 'sb_publishable_Hf0du3Xu6HrtpBwkUhdXqQ_xxVNKXlJ',
+  );
+
   runApp(const SanBidetApp());
 }
 
