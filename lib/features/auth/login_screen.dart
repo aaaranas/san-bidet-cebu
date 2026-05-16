@@ -40,6 +40,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (widget.isAdmin) {
         final admin = await _auth.isAdmin();
+        if (!mounted) return;
         if (!admin) {
           await _auth.signOut();
           setState(() {
@@ -88,7 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.15),
+                          color: Colors.white.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.arrow_back,
@@ -118,7 +119,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ? 'Sign in to manage bidet submissions.'
                           : 'Sign in to submit and rate bidets.',
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.75),
+                          color: Colors.white.withValues(alpha: 0.75),
                           fontSize: 14),
                     ),
                   ],

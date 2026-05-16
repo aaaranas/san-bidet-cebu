@@ -38,7 +38,7 @@ class HomeScreen extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.15),
+                          color: Colors.white.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: const Row(
@@ -70,7 +70,7 @@ class HomeScreen extends StatelessWidget {
                       Text(
                         'Crowdsourced bidet locations\nacross Cebu — mapped by the community.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.75),
+                          color: Colors.white.withValues(alpha: 0.75),
                           fontSize: 14,
                           height: 1.6,
                         ),

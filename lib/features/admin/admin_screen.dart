@@ -82,7 +82,7 @@ class _AdminScreenState extends State<AdminScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
+                            color: Colors.white.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: const Row(
@@ -112,7 +112,7 @@ class _AdminScreenState extends State<AdminScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.15),
+                              color: Colors.white.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: const Icon(Icons.logout,
@@ -134,7 +134,7 @@ class _AdminScreenState extends State<AdminScreen> {
                     const SizedBox(height: 4),
                     Text('Review and approve bidet submissions.',
                         style: TextStyle(
-                            color: Colors.white.withOpacity(0.75),
+                            color: Colors.white.withValues(alpha: 0.75),
                             fontSize: 13)),
                   ],
                 ),

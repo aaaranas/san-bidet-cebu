@@ -31,7 +31,7 @@ class BidetCard extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: _iconColor().withOpacity(0.12),
+                color: _iconColor().withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(_iconData(), color: _iconColor(), size: 20),
