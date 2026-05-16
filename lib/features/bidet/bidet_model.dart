@@ -9,6 +9,11 @@ class Bidet {
   final int ratingCount;
   final DateTime createdAt;
   final String status;
+  final String? imageUrl;
+  final double cleanlinessRating;
+  final double pressureRating;
+  final double accessibilityRating;
+  final double privacyRating;
 
   Bidet({
     required this.id,
@@ -21,6 +26,11 @@ class Bidet {
     required this.ratingCount,
     required this.createdAt,
     this.status = 'pending',
+    this.imageUrl,
+    this.cleanlinessRating = 0.0,
+    this.pressureRating = 0.0,
+    this.accessibilityRating = 0.0,
+    this.privacyRating = 0.0,
   });
 
   factory Bidet.fromMap(Map<String, dynamic> data) {
@@ -36,6 +46,11 @@ class Bidet {
       createdAt: DateTime.parse(
           data['created_at'] ?? DateTime.now().toIso8601String()),
       status: data['status'] ?? 'pending',
+      imageUrl: data['image_url'] as String?,
+      cleanlinessRating: (data['cleanliness_rating'] ?? 0.0).toDouble(),
+      pressureRating: (data['pressure_rating'] ?? 0.0).toDouble(),
+      accessibilityRating: (data['accessibility_rating'] ?? 0.0).toDouble(),
+      privacyRating: (data['privacy_rating'] ?? 0.0).toDouble(),
     );
   }
 
@@ -48,6 +63,7 @@ class Bidet {
         'rating': rating,
         'rating_count': ratingCount,
         'status': status,
+        if (imageUrl != null) 'image_url': imageUrl,
       };
 
   String get typeLabel {

@@ -1,5 +1,7 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../services/supabase_service.dart';
 import '../../services/location_service.dart';
 import 'bidet_model.dart';
@@ -18,9 +20,12 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
   String _selectedType = 'spray_hose';
   bool _isSubmitting = false;
   Position? _currentPosition;
+  XFile? _selectedImage;
+  Uint8List? _imageBytes;
 
   final _supabaseService = SupabaseService();
   final _locationService = LocationService();
+  final _imagePicker = ImagePicker();
 
   static const _green = Color(0xFF1A6B3C);
 
@@ -55,12 +60,27 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
     }
   }
 
+  Future<void> _pickImage() async {
+    final XFile? image = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1920,
+      maxHeight: 1080,
+      imageQuality: 85,
+    );
+    if (image != null) {
+      final bytes = await image.readAsBytes();
+      setState(() {
+        _selectedImage = image;
+        _imageBytes = bytes;
+      });
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_currentPosition == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Please capture your location first.')),
+        const SnackBar(content: Text('Please capture your location first.')),
       );
       return;
     }
@@ -79,14 +99,23 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
       createdAt: DateTime.now(),
     );
 
-    await _supabaseService.addBidet(bidet);
+    final bidetId = await _supabaseService.addBidet(bidet);
+
+    if (_imageBytes != null && _selectedImage != null) {
+      final parts = _selectedImage!.path.split('.');
+      final ext = parts.length > 1 ? parts.last.toLowerCase() : 'jpg';
+      final imageUrl = await _supabaseService.uploadBidetImage(
+          _imageBytes!, bidetId, ext);
+      if (imageUrl != null) {
+        await _supabaseService.updateBidetImage(bidetId, imageUrl);
+      }
+    }
 
     if (mounted) {
       setState(() => _isSubmitting = false);
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Bidet submitted for review! 🚿')),
+        const SnackBar(content: Text('Bidet submitted for review!')),
       );
     }
   }
@@ -138,16 +167,14 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
                     onTap: () => setState(() => _selectedType = t.$1),
                     child: Container(
                       margin: const EdgeInsets.only(right: 8),
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 10),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
                         color: selected
-                            ? _green.withOpacity(0.1)
+                            ? _green.withValues(alpha: 0.1)
                             : Colors.transparent,
                         border: Border.all(
-                          color: selected
-                              ? _green
-                              : Colors.grey.shade300,
+                          color:
+                              selected ? _green : Colors.grey.shade300,
                         ),
                         borderRadius: BorderRadius.circular(20),
                       ),
@@ -159,9 +186,7 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
                           fontWeight: selected
                               ? FontWeight.w600
                               : FontWeight.normal,
-                          color: selected
-                              ? _green
-                              : Colors.grey.shade600,
+                          color: selected ? _green : Colors.grey.shade600,
                         ),
                       ),
                     ),
@@ -189,6 +214,68 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
             ),
+            const SizedBox(height: 16),
+            const Text('Photo (optional)',
+                style: TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 8),
+            if (_imageBytes != null)
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(
+                      _imageBytes!,
+                      width: double.infinity,
+                      height: 180,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: GestureDetector(
+                      onTap: () => setState(() {
+                        _selectedImage = null;
+                        _imageBytes = null;
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.black54,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.close,
+                            color: Colors.white, size: 16),
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else
+              GestureDetector(
+                onTap: _pickImage,
+                child: Container(
+                  width: double.infinity,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_photo_alternate_outlined,
+                          size: 32, color: Colors.grey.shade400),
+                      const SizedBox(height: 4),
+                      Text('Tap to add a photo',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade500)),
+                    ],
+                  ),
+                ),
+              ),
             const SizedBox(height: 32),
             ElevatedButton(
               onPressed: _isSubmitting ? null : _submit,
@@ -208,8 +295,7 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
                           strokeWidth: 2, color: Colors.white),
                     )
                   : const Text('Submit bidet location',
-                      style:
-                          TextStyle(fontWeight: FontWeight.w600)),
+                      style: TextStyle(fontWeight: FontWeight.w600)),
             ),
           ],
         ),
@@ -220,8 +306,7 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
   InputDecoration _inputDecoration(String hint) {
     return InputDecoration(
       hintText: hint,
-      hintStyle:
-          TextStyle(color: Colors.grey.shade400, fontSize: 13),
+      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(

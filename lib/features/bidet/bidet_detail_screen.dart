@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/supabase_service.dart';
 import 'bidet_model.dart';
 
@@ -26,10 +27,28 @@ class BidetDetailScreen extends StatelessWidget {
       ),
       body: ListView(
         children: [
-          // Green header
+          if (bidet.imageUrl != null)
+            CachedNetworkImage(
+              imageUrl: bidet.imageUrl!,
+              height: 200,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              placeholder: (_, __) => Container(
+                height: 200,
+                color: Colors.grey.shade200,
+                child: const Center(child: CircularProgressIndicator()),
+              ),
+              errorWidget: (_, __, ___) => Container(
+                height: 200,
+                color: Colors.grey.shade100,
+                child: Icon(Icons.image_not_supported,
+                    color: Colors.grey.shade400, size: 40),
+              ),
+            ),
           Container(
             color: _green,
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            padding: EdgeInsets.fromLTRB(
+                20, bidet.imageUrl != null ? 16 : 0, 20, 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -66,13 +85,24 @@ class BidetDetailScreen extends StatelessWidget {
               ],
             ),
           ),
-
-          // Details
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (bidet.ratingCount > 0) ...[
+                  const Text('Ratings breakdown',
+                      style: TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  _ratingBar('Cleanliness', bidet.cleanlinessRating),
+                  _ratingBar('Water Pressure', bidet.pressureRating),
+                  _ratingBar('Accessibility', bidet.accessibilityRating),
+                  _ratingBar('Privacy', bidet.privacyRating),
+                  const SizedBox(height: 20),
+                  const Divider(height: 1),
+                  const SizedBox(height: 20),
+                ],
                 _detailRow('Location', bidet.floor),
                 _detailRow('Type', bidet.typeLabel),
                 _detailRow('Added',
@@ -103,6 +133,40 @@ class BidetDetailScreen extends StatelessWidget {
     );
   }
 
+  Widget _ratingBar(String label, double value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(label,
+                style:
+                    const TextStyle(fontSize: 13, color: Colors.grey)),
+          ),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: value / 5,
+                backgroundColor: Colors.grey.shade200,
+                valueColor:
+                    const AlwaysStoppedAnimation(_green),
+                minHeight: 8,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(value.toStringAsFixed(1),
+              style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _green)),
+        ],
+      ),
+    );
+  }
+
   Widget _starRow(double rating) {
     return Row(
       children: List.generate(5, (i) {
@@ -121,7 +185,7 @@ class BidetDetailScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: Colors.white.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(label,
@@ -136,7 +200,8 @@ class BidetDetailScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label,
-              style: const TextStyle(fontSize: 13, color: Colors.grey)),
+              style:
+                  const TextStyle(fontSize: 13, color: Colors.grey)),
           Text(value,
               style: const TextStyle(
                   fontSize: 13, fontWeight: FontWeight.w600)),
@@ -146,28 +211,33 @@ class BidetDetailScreen extends StatelessWidget {
   }
 
   void _showRatingDialog(BuildContext context) {
-    int selected = 0;
+    int cleanliness = 0;
+    int pressure = 0;
+    int accessibility = 0;
+    int privacy = 0;
+
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
+        builder: (ctx, setDialogState) => AlertDialog(
           title: const Text('Rate this bidet',
               style:
                   TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          content: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(5, (i) {
-              return GestureDetector(
-                onTap: () => setState(() => selected = i + 1),
-                child: Icon(
-                  i < selected
-                      ? Icons.star_rounded
-                      : Icons.star_outline_rounded,
-                  color: Colors.amber.shade500,
-                  size: 36,
-                ),
-              );
-            }),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _criteriaRow('Cleanliness', cleanliness,
+                  (v) => setDialogState(() => cleanliness = v)),
+              const SizedBox(height: 12),
+              _criteriaRow('Water Pressure', pressure,
+                  (v) => setDialogState(() => pressure = v)),
+              const SizedBox(height: 12),
+              _criteriaRow('Accessibility', accessibility,
+                  (v) => setDialogState(() => accessibility = v)),
+              const SizedBox(height: 12),
+              _criteriaRow('Privacy', privacy,
+                  (v) => setDialogState(() => privacy = v)),
+            ],
           ),
           actions: [
             TextButton(
@@ -175,11 +245,19 @@ class BidetDetailScreen extends StatelessWidget {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: selected == 0
+              onPressed: (cleanliness == 0 ||
+                      pressure == 0 ||
+                      accessibility == 0 ||
+                      privacy == 0)
                   ? null
                   : () async {
-                      await SupabaseService()
-                          .rateBidet(bidet.id, selected.toDouble());
+                      await SupabaseService().rateBidet(
+                        bidet.id,
+                        cleanliness.toDouble(),
+                        pressure.toDouble(),
+                        accessibility.toDouble(),
+                        privacy.toDouble(),
+                      );
                       if (ctx.mounted) Navigator.pop(ctx);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -196,6 +274,37 @@ class BidetDetailScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _criteriaRow(
+      String label, int selected, ValueChanged<int> onChanged) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 96,
+          child: Text(label,
+              style:
+                  const TextStyle(fontSize: 12, color: Colors.grey)),
+        ),
+        Expanded(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: List.generate(5, (i) {
+              return GestureDetector(
+                onTap: () => onChanged(i + 1),
+                child: Icon(
+                  i < selected
+                      ? Icons.star_rounded
+                      : Icons.star_outline_rounded,
+                  color: Colors.amber.shade500,
+                  size: 26,
+                ),
+              );
+            }),
+          ),
+        ),
+      ],
     );
   }
 }

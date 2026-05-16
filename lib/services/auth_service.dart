@@ -8,15 +8,18 @@ class AuthService {
   Stream<AuthState> get authStateChanges =>
       _supabase.auth.onAuthStateChange;
 
-  // Sign up
-  Future<void> signUp(String email, String password) async {
+  String? get currentUsername =>
+      currentUser?.userMetadata?['username'] as String?;
+
+  Future<void> signUp(String email, String password,
+      {String? username}) async {
     await _supabase.auth.signUp(
       email: email,
       password: password,
+      data: username != null ? {'username': username} : null,
     );
   }
 
-  // Sign in
   Future<void> signIn(String email, String password) async {
     await _supabase.auth.signInWithPassword(
       email: email,
@@ -24,12 +27,10 @@ class AuthService {
     );
   }
 
-  // Sign out
   Future<void> signOut() async {
     await _supabase.auth.signOut();
   }
 
-  // Get role from profiles table
   Future<String> getRole() async {
     final user = currentUser;
     if (user == null) return 'user';

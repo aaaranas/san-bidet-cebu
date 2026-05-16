@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -23,15 +24,24 @@ class _MapScreenState extends State<MapScreen> {
   final _mapController = MapController();
   final _supabaseService = SupabaseService();
   final _locationService = LocationService();
+  final _searchController = TextEditingController();
 
   Position? _userPosition;
   List<Bidet> _bidets = [];
+  String? _selectedBidetId;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _fetchLocation();
     _loadBidets();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadBidets() async {
@@ -71,23 +81,39 @@ class _MapScreenState extends State<MapScreen> {
     return sorted;
   }
 
+  List<Bidet> get _filtered {
+    final sorted = _sortedByDistance(_bidets);
+    if (_searchQuery.isEmpty) return sorted;
+    final q = _searchQuery.toLowerCase();
+    return sorted
+        .where((b) =>
+            b.placeName.toLowerCase().contains(q) ||
+            b.floor.toLowerCase().contains(q))
+        .toList();
+  }
+
+  void _selectAndFly(Bidet bidet) {
+    setState(() => _selectedBidetId = bidet.id);
+    _mapController.move(LatLng(bidet.latitude, bidet.longitude), 17);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sorted = _sortedByDistance(_bidets);
+    final filtered = _filtered;
 
     return Scaffold(
       body: Stack(
         children: [
           FlutterMap(
             mapController: _mapController,
-            options: MapOptions(
+            options: const MapOptions(
               initialCenter: _cebu,
               initialZoom: 14,
             ),
             children: [
               TileLayer(
                 urlTemplate:
-                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.san_bidet_cebu',
               ),
               MarkerLayer(
@@ -96,33 +122,40 @@ class _MapScreenState extends State<MapScreen> {
                     Marker(
                       point: LatLng(_userPosition!.latitude,
                           _userPosition!.longitude),
-                      width: 20,
-                      height: 20,
+                      width: 24,
+                      height: 24,
                       child: Container(
                         decoration: BoxDecoration(
                           color: Colors.blue,
                           shape: BoxShape.circle,
                           border: Border.all(
-                              color: Colors.white, width: 2.5),
+                              color: Colors.white, width: 3),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.blue.withValues(alpha: 0.4),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ..._bidets.map((bidet) => Marker(
-                        point: LatLng(bidet.latitude, bidet.longitude),
-                        width: 36,
-                        height: 36,
-                        child: GestureDetector(
-                          onTap: () => _openDetail(bidet),
-                          child: Container(
-                            decoration: const BoxDecoration(
-                              color: _green,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.wc,
-                                color: Colors.white, size: 18),
-                          ),
-                        ),
-                      )),
+                  ..._bidets.map((bidet) {
+                    final isSelected = _selectedBidetId == bidet.id;
+                    return Marker(
+                      point: LatLng(bidet.latitude, bidet.longitude),
+                      width: 44,
+                      height: 54,
+                      alignment: Alignment.bottomCenter,
+                      child: GestureDetector(
+                        onTap: () {
+                          _selectAndFly(bidet);
+                          _openDetail(bidet);
+                        },
+                        child: _buildMarker(isSelected),
+                      ),
+                    );
+                  }),
                 ],
               ),
             ],
@@ -140,7 +173,7 @@ class _MapScreenState extends State<MapScreen> {
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withOpacity(0.15),
+                        color: Colors.black.withValues(alpha: 0.15),
                         blurRadius: 8,
                         offset: const Offset(0, 2))
                   ],
@@ -172,7 +205,7 @@ class _MapScreenState extends State<MapScreen> {
           // My location button
           Positioned(
             right: 16,
-            bottom: 240,
+            bottom: 260,
             child: FloatingActionButton.small(
               heroTag: 'locate',
               onPressed: () {
@@ -210,10 +243,7 @@ class _MapScreenState extends State<MapScreen> {
                         offset: Offset(0, -2))
                   ],
                 ),
-                child: ListView(
-                  controller: scrollController,
-                  padding:
-                      const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: Column(
                   children: [
                     Center(
                       child: Container(
@@ -227,37 +257,111 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                       ),
                     ),
-                    Text(
-                      'Nearby bidets (${_bidets.length})',
-                      style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    if (sorted.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 20),
-                        child: Column(
-                          children: [
-                            Icon(Icons.wc_outlined,
-                                size: 48,
-                                color: Colors.grey.shade300),
-                            const SizedBox(height: 8),
-                            Text(
-                              'No bidets yet — be the first to add one!',
-                              style: TextStyle(
+                    Padding(
+                      padding:
+                          const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Nearby bidets (${_bidets.length})',
+                            style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _searchController,
+                            onChanged: (v) =>
+                                setState(() => _searchQuery = v),
+                            decoration: InputDecoration(
+                              hintText: 'Search by name or location…',
+                              hintStyle: TextStyle(
                                   color: Colors.grey.shade400,
                                   fontSize: 13),
-                              textAlign: TextAlign.center,
+                              prefixIcon: Icon(Icons.search,
+                                  color: Colors.grey.shade400,
+                                  size: 18),
+                              suffixIcon: _searchQuery.isNotEmpty
+                                  ? GestureDetector(
+                                      onTap: () {
+                                        _searchController.clear();
+                                        setState(
+                                            () => _searchQuery = '');
+                                      },
+                                      child: Icon(Icons.close,
+                                          color: Colors.grey.shade400,
+                                          size: 18),
+                                    )
+                                  : null,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 10),
+                              border: OutlineInputBorder(
+                                borderRadius:
+                                    BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                    color: Colors.grey.shade200),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius:
+                                    BorderRadius.circular(10),
+                                borderSide: BorderSide(
+                                    color: Colors.grey.shade200),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius:
+                                    BorderRadius.circular(10),
+                                borderSide:
+                                    const BorderSide(color: _green),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey.shade50,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ...sorted.map((bidet) => BidetCard(
-                          bidet: bidet,
-                          distance: _distance(bidet),
-                          onTap: () => _openDetail(bidet),
-                        )),
+                    ),
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.wc_outlined,
+                                      size: 48,
+                                      color: Colors.grey.shade300),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _searchQuery.isEmpty
+                                        ? 'No bidets yet — be the first!'
+                                        : 'No results for "$_searchQuery"',
+                                    style: TextStyle(
+                                        color: Colors.grey.shade400,
+                                        fontSize: 13),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              controller: scrollController,
+                              padding: const EdgeInsets.fromLTRB(
+                                  20, 0, 20, 20),
+                              itemCount: filtered.length,
+                              itemBuilder: (_, i) {
+                                final bidet = filtered[i];
+                                return BidetCard(
+                                  bidet: bidet,
+                                  distance: _distance(bidet),
+                                  onTap: () {
+                                    _selectAndFly(bidet);
+                                    _openDetail(bidet);
+                                  },
+                                );
+                              },
+                            ),
+                    ),
                   ],
                 ),
               );
@@ -268,13 +372,42 @@ class _MapScreenState extends State<MapScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: () => Navigator.push(
           context,
-          MaterialPageRoute(
-              builder: (_) => const BidetAddScreen()),
+          MaterialPageRoute(builder: (_) => const BidetAddScreen()),
         ),
         backgroundColor: _green,
         foregroundColor: Colors.white,
         child: const Icon(Icons.add),
       ),
+    );
+  }
+
+  Widget _buildMarker(bool isSelected) {
+    final color = isSelected ? const Color(0xFFE65100) : _green;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.4),
+                blurRadius: 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: const Icon(Icons.wc, color: Colors.white, size: 20),
+        ),
+        CustomPaint(
+          size: const Size(14, 10),
+          painter: _PinTipPainter(color: color),
+        ),
+      ],
     );
   }
 
@@ -289,4 +422,22 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
   }
+}
+
+class _PinTipPainter extends CustomPainter {
+  final Color color;
+  const _PinTipPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = ui.Path()
+      ..moveTo(size.width / 2, size.height)
+      ..lineTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_PinTipPainter old) => old.color != color;
 }

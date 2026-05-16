@@ -10,31 +10,67 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
+  final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmController = TextEditingController();
   final _auth = AuthService();
+
   bool _loading = false;
   String? _error;
+  bool _showPassword = false;
+  bool _showConfirm = false;
 
   static const _green = Color(0xFF1A6B3C);
 
   @override
   void dispose() {
+    _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmController.dispose();
     super.dispose();
   }
 
+  int _passwordStrength(String password) {
+    if (password.isEmpty) return 0;
+    int score = 0;
+    if (password.length >= 8) score++;
+    if (RegExp(r'[a-z]').hasMatch(password)) score++;
+    if (RegExp(r'[A-Z]').hasMatch(password)) score++;
+    if (RegExp(r'[0-9]').hasMatch(password)) score++;
+    if (RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)) score++;
+    return score;
+  }
+
   Future<void> _signup() async {
-    setState(() { _loading = true; _error = null; });
+    final username = _usernameController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final confirm = _confirmController.text;
+
+    if (username.isEmpty) {
+      setState(() => _error = 'Please enter a username.');
+      return;
+    }
+    if (password.length < 8) {
+      setState(() => _error = 'Password must be at least 8 characters.');
+      return;
+    }
+    if (password != confirm) {
+      setState(() => _error = 'Passwords do not match.');
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      await _auth.signUp(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
-      );
+      await _auth.signUp(email, password, username: username);
       if (!mounted) return;
-      Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => const MapScreen()));
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (_) => const MapScreen()));
     } catch (e) {
       setState(() {
         _error = 'Could not create account. Try again.';
@@ -45,6 +81,9 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final password = _passwordController.text;
+    final strength = _passwordStrength(password);
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
@@ -69,7 +108,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.15),
+                          color: Colors.white.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Icon(Icons.arrow_back,
@@ -89,7 +128,7 @@ class _SignupScreenState extends State<SignupScreen> {
                     Text(
                         'Join the community and start\nmapping bidets across Cebu.',
                         style: TextStyle(
-                            color: Colors.white.withOpacity(0.75),
+                            color: Colors.white.withValues(alpha: 0.75),
                             fontSize: 14)),
                   ],
                 ),
@@ -102,12 +141,29 @@ class _SignupScreenState extends State<SignupScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _buildField('Username', _usernameController,
+                      hint: 'e.g. bidet_hunter', prefix: '@'),
+                  const SizedBox(height: 16),
                   _buildField('Email', _emailController,
                       hint: 'you@email.com',
                       keyboard: TextInputType.emailAddress),
                   const SizedBox(height: 16),
-                  _buildField('Password', _passwordController,
-                      hint: 'At least 6 characters', obscure: true),
+                  _buildPasswordField('Password', _passwordController,
+                      hint: 'At least 8 characters',
+                      visible: _showPassword,
+                      onToggle: () =>
+                          setState(() => _showPassword = !_showPassword)),
+                  if (password.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _strengthIndicator(strength),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildPasswordField(
+                      'Confirm password', _confirmController,
+                      hint: 'Re-enter your password',
+                      visible: _showConfirm,
+                      onToggle: () =>
+                          setState(() => _showConfirm = !_showConfirm)),
                   if (_error != null) ...[
                     const SizedBox(height: 12),
                     Container(
@@ -149,8 +205,7 @@ class _SignupScreenState extends State<SignupScreen> {
                               height: 18,
                               width: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white))
+                                  strokeWidth: 2, color: Colors.white))
                           : const Text('Create account',
                               style: TextStyle(
                                   fontWeight: FontWeight.w700,
@@ -165,8 +220,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         text: TextSpan(
                           text: 'Already have an account? ',
                           style: TextStyle(
-                              color: Colors.grey.shade500,
-                              fontSize: 13),
+                              color: Colors.grey.shade500, fontSize: 13),
                           children: const [
                             TextSpan(
                               text: 'Sign in',
@@ -188,9 +242,58 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
+  Widget _strengthIndicator(int strength) {
+    final labels = [
+      '',
+      'Very weak',
+      'Weak',
+      'Fair',
+      'Strong',
+      'Very strong'
+    ];
+    final colors = [
+      Colors.transparent,
+      Colors.red,
+      Colors.orange,
+      Colors.yellow.shade700,
+      Colors.lightGreen,
+      _green,
+    ];
+    final clamped = strength.clamp(0, 5);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: List.generate(5, (i) {
+            return Expanded(
+              child: Container(
+                height: 4,
+                margin: EdgeInsets.only(right: i < 4 ? 4 : 0),
+                decoration: BoxDecoration(
+                  color: i < strength
+                      ? colors[clamped]
+                      : Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          clamped > 0 ? labels[clamped] : '',
+          style: TextStyle(
+              fontSize: 11,
+              color: colors[clamped],
+              fontWeight: FontWeight.w500),
+        ),
+      ],
+    );
+  }
+
   Widget _buildField(String label, TextEditingController controller,
       {String hint = '',
-      bool obscure = false,
+      String? prefix,
       TextInputType keyboard = TextInputType.text}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -203,14 +306,65 @@ class _SignupScreenState extends State<SignupScreen> {
         const SizedBox(height: 6),
         TextFormField(
           controller: controller,
-          obscureText: obscure,
           keyboardType: keyboard,
+          decoration: InputDecoration(
+            hintText: hint,
+            prefixText: prefix,
+            prefixStyle:
+                TextStyle(color: Colors.grey.shade500, fontSize: 13),
+            hintStyle:
+                TextStyle(color: Colors.grey.shade400, fontSize: 13),
+            contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14, vertical: 13),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: _green),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPasswordField(String label, TextEditingController controller,
+      {String hint = '',
+      required bool visible,
+      required VoidCallback onToggle}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        TextFormField(
+          controller: controller,
+          obscureText: !visible,
+          onChanged: (_) => setState(() {}),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle:
                 TextStyle(color: Colors.grey.shade400, fontSize: 13),
             contentPadding: const EdgeInsets.symmetric(
                 horizontal: 14, vertical: 13),
+            suffixIcon: GestureDetector(
+              onTap: onToggle,
+              child: Icon(
+                visible ? Icons.visibility_off : Icons.visibility,
+                color: Colors.grey.shade400,
+                size: 20,
+              ),
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: BorderSide(color: Colors.grey.shade300),

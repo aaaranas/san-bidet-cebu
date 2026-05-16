@@ -1,10 +1,10 @@
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../features/bidet/bidet_model.dart';
 
 class SupabaseService {
   final _supabase = Supabase.instance.client;
 
-  // Stream approved bidets (polls every 5 seconds for web)
   Stream<List<Bidet>> getBidets() {
     return Stream.periodic(const Duration(seconds: 5))
         .asyncMap((_) => _fetchApproved())
@@ -19,7 +19,6 @@ class SupabaseService {
     return (data as List).map((e) => Bidet.fromMap(e)).toList();
   }
 
-  // Get pending bidets (admin only)
   Future<List<Bidet>> getPendingBidets() async {
     final data = await _supabase
         .from('bidets')
@@ -28,12 +27,40 @@ class SupabaseService {
     return (data as List).map((e) => Bidet.fromMap(e)).toList();
   }
 
-  // Submit a new bidet
-  Future<void> addBidet(Bidet bidet) async {
-    await _supabase.from('bidets').insert(bidet.toMap());
+  // Returns the new bidet's ID so the caller can attach an image.
+  Future<String> addBidet(Bidet bidet) async {
+    final data = await _supabase
+        .from('bidets')
+        .insert(bidet.toMap())
+        .select('id')
+        .single();
+    return data['id'] as String;
   }
 
-  // Approve a bidet
+  // Requires a 'bidet-images' public storage bucket in Supabase.
+  Future<String?> uploadBidetImage(
+      Uint8List bytes, String bidetId, String extension) async {
+    try {
+      final fileName =
+          '${bidetId}_${DateTime.now().millisecondsSinceEpoch}.$extension';
+      await _supabase.storage.from('bidet-images').uploadBinary(
+            fileName,
+            bytes,
+            fileOptions: FileOptions(contentType: 'image/$extension'),
+          );
+      return _supabase.storage.from('bidet-images').getPublicUrl(fileName);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> updateBidetImage(String id, String imageUrl) async {
+    await _supabase
+        .from('bidets')
+        .update({'image_url': imageUrl})
+        .eq('id', id);
+  }
+
   Future<void> approveBidet(String id) async {
     await _supabase
         .from('bidets')
@@ -41,28 +68,38 @@ class SupabaseService {
         .eq('id', id);
   }
 
-  // Delete/reject a bidet
   Future<void> deleteBidet(String id) async {
     await _supabase.from('bidets').delete().eq('id', id);
   }
 
-  // Rate a bidet
-  Future<void> rateBidet(String id, double newRating) async {
+  // Rates a bidet across 4 qualification criteria.
+  // Requires columns: cleanliness_rating, pressure_rating,
+  // accessibility_rating, privacy_rating in the bidets table.
+  Future<void> rateBidet(String id, double cleanliness, double pressure,
+      double accessibility, double privacy) async {
     final data = await _supabase
         .from('bidets')
-        .select('rating, rating_count')
+        .select(
+            'rating, rating_count, cleanliness_rating, pressure_rating, accessibility_rating, privacy_rating')
         .eq('id', id)
         .single();
 
-    final oldRating = (data['rating'] ?? 0.0).toDouble();
     final oldCount = (data['rating_count'] ?? 0) as int;
-    final updatedCount = oldCount + 1;
-    final updatedRating =
-        ((oldRating * oldCount) + newRating) / updatedCount;
+    final newCount = oldCount + 1;
+
+    double avg(String field, double newVal) =>
+        (((data[field] ?? 0.0) as num).toDouble() * oldCount + newVal) /
+        newCount;
+
+    final overall = (cleanliness + pressure + accessibility + privacy) / 4;
 
     await _supabase.from('bidets').update({
-      'rating': updatedRating,
-      'rating_count': updatedCount,
+      'rating': avg('rating', overall),
+      'rating_count': newCount,
+      'cleanliness_rating': avg('cleanliness_rating', cleanliness),
+      'pressure_rating': avg('pressure_rating', pressure),
+      'accessibility_rating': avg('accessibility_rating', accessibility),
+      'privacy_rating': avg('privacy_rating', privacy),
     }).eq('id', id);
   }
 }
