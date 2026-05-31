@@ -31,6 +31,53 @@ class _MapScreenState extends State<MapScreen> {
   String? _selectedBidetId;
   String _searchQuery = '';
 
+  // Map style switching --------------------------------------------------
+  static const _styles = <_MapStyle>[
+    _MapStyle(
+      id: MapStyleId.map,
+      label: 'Map',
+      icon: Icons.map_outlined,
+      url:
+          'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+      attribution: '© OpenStreetMap, © CARTO',
+      dark: false,
+    ),
+    _MapStyle(
+      id: MapStyleId.satellite,
+      label: 'Satellite',
+      icon: Icons.satellite_alt_outlined,
+      url:
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      attribution: 'Imagery © Esri',
+      dark: true,
+    ),
+    _MapStyle(
+      id: MapStyleId.hybrid,
+      label: 'Hybrid',
+      icon: Icons.layers_outlined,
+      url:
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      overlayUrl:
+          'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+      attribution: 'Imagery © Esri',
+      dark: true,
+    ),
+    _MapStyle(
+      id: MapStyleId.terrain,
+      label: 'Terrain',
+      icon: Icons.terrain_outlined,
+      url:
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+      attribution: 'Topo © Esri',
+      dark: false,
+    ),
+  ];
+
+  MapStyleId _styleId = MapStyleId.map;
+  bool _layersOpen = false;
+
+  _MapStyle get _style => _styles.firstWhere((s) => s.id == _styleId);
+
   @override
   void initState() {
     super.initState();
@@ -112,10 +159,18 @@ class _MapScreenState extends State<MapScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                key: ValueKey(_style.id),
+                urlTemplate: _style.url,
                 userAgentPackageName: 'com.example.san_bidet_cebu',
+                maxNativeZoom: 19,
               ),
+              if (_style.overlayUrl != null)
+                TileLayer(
+                  key: ValueKey('${_style.id}-overlay'),
+                  urlTemplate: _style.overlayUrl!,
+                  userAgentPackageName: 'com.example.san_bidet_cebu',
+                  maxNativeZoom: 19,
+                ),
               MarkerLayer(
                 markers: [
                   if (_userPosition != null)
@@ -202,6 +257,13 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
+          // Layer switcher
+          Positioned(
+            right: 16,
+            bottom: 312,
+            child: _buildLayerSwitcher(),
+          ),
+
           // My location button
           Positioned(
             right: 16,
@@ -222,6 +284,29 @@ class _MapScreenState extends State<MapScreen> {
               backgroundColor: Colors.white,
               foregroundColor: _green,
               child: const Icon(Icons.my_location),
+            ),
+          ),
+
+          // Attribution badge
+          Positioned(
+            left: 12,
+            bottom: 312,
+            child: IgnorePointer(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.82),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  _style.attribution,
+                  style: TextStyle(
+                      fontSize: 9.5,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500),
+                ),
+              ),
             ),
           ),
 
@@ -381,6 +466,110 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  Widget _buildLayerSwitcher() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Toggle button
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => setState(() => _layersOpen = !_layersOpen),
+            child: Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              child: Icon(
+                _layersOpen ? Icons.close : Icons.layers_outlined,
+                color: _green,
+                size: 22,
+              ),
+            ),
+          ),
+          // Expanding option list
+          ClipRect(
+            child: AnimatedAlign(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              heightFactor: _layersOpen ? 1 : 0,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 28,
+                    height: 1,
+                    color: Colors.grey.shade200,
+                  ),
+                  for (final s in _styles) _layerOption(s),
+                  const SizedBox(height: 4),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _layerOption(_MapStyle s) {
+    final selected = s.id == _styleId;
+    return Tooltip(
+      message: s.label,
+      child: InkWell(
+        onTap: () => setState(() {
+          _styleId = s.id;
+          _layersOpen = false;
+        }),
+        child: Container(
+          width: 40,
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: Column(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: selected ? _green : const Color(0xFFF0F8F3),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  s.icon,
+                  size: 17,
+                  color: selected ? Colors.white : _green,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                s.label,
+                style: TextStyle(
+                  fontSize: 8,
+                  height: 1.1,
+                  fontWeight:
+                      selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? _green : Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMarker(bool isSelected) {
     final color = isSelected ? const Color(0xFFE65100) : _green;
     return Column(
@@ -422,6 +611,28 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
   }
+}
+
+enum MapStyleId { map, satellite, hybrid, terrain }
+
+class _MapStyle {
+  final MapStyleId id;
+  final String label;
+  final IconData icon;
+  final String url;
+  final String? overlayUrl;
+  final String attribution;
+  final bool dark;
+
+  const _MapStyle({
+    required this.id,
+    required this.label,
+    required this.icon,
+    required this.url,
+    this.overlayUrl,
+    required this.attribution,
+    required this.dark,
+  });
 }
 
 class _PinTipPainter extends CustomPainter {
