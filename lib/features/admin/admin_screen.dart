@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
+import '../../services/gis_export_service.dart';
 import '../../services/supabase_service.dart';
 import '../bidet/bidet_model.dart';
 import '../home/home_screen.dart';
@@ -15,8 +16,10 @@ class _AdminScreenState extends State<AdminScreen> {
   static const _green = Color(0xFF1A6B3C);
   final _supabaseService = SupabaseService();
   final _authService = AuthService();
+  final _gisExport = GisExportService();
   List<Bidet> _pending = [];
   bool _loading = true;
+  bool _exporting = false;
 
   @override
   void initState() {
@@ -40,6 +43,145 @@ class _AdminScreenState extends State<AdminScreen> {
             backgroundColor: _green),
       );
     }
+  }
+
+  Future<void> _exportGis() async {
+    final format = await showModalBottomSheet<GisFormat>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const Text('Export for GIS',
+                  style: TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Text(
+                'Download all bidets as a mappable layer. Open it directly '
+                'in QGIS / ArcGIS, or convert to an ESRI Shapefile there.',
+                style: TextStyle(
+                    fontSize: 12.5,
+                    color: Colors.grey.shade500,
+                    height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              _exportOption(
+                ctx,
+                GisFormat.geoJson,
+                Icons.public,
+                'GeoJSON',
+                'WGS84 points + attributes · best for QGIS / ArcGIS',
+              ),
+              const SizedBox(height: 10),
+              _exportOption(
+                ctx,
+                GisFormat.csv,
+                Icons.table_chart_outlined,
+                'CSV (with WKT)',
+                'Spreadsheet or PostGIS-friendly delimited points',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (format == null) return;
+
+    setState(() => _exporting = true);
+    try {
+      final bidets = await _supabaseService.getAllBidets();
+      if (bidets.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No bidets to export yet.')),
+          );
+        }
+        return;
+      }
+      final name = await _gisExport.export(bidets, format);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Exported ${bidets.length} bidets → $name'),
+            backgroundColor: _green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Export failed: $e'),
+              backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Widget _exportOption(BuildContext ctx, GisFormat format, IconData icon,
+      String title, String subtitle) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.pop(ctx, format),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7FBF8),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF7F0),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: _green, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 14.5, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(subtitle,
+                      style: TextStyle(
+                          fontSize: 11.5, color: Colors.grey.shade500)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: Colors.grey.shade400),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _reject(String id) async {
@@ -98,26 +240,56 @@ class _AdminScreenState extends State<AdminScreen> {
                             ],
                           ),
                         ),
-                        GestureDetector(
-                          onTap: () async {
-                            await _authService.signOut();
-                            if (context.mounted) {
-                              Navigator.pushReplacement(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const HomeScreen()));
-                            }
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(10),
+                        Row(
+                          children: [
+                            GestureDetector(
+                              onTap: _exporting ? null : _exportGis,
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white
+                                      .withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: _exporting
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation(
+                                                  Colors.white),
+                                        ),
+                                      )
+                                    : const Icon(Icons.ios_share,
+                                        color: Colors.white, size: 18),
+                              ),
                             ),
-                            child: const Icon(Icons.logout,
-                                color: Colors.white, size: 18),
-                          ),
+                            const SizedBox(width: 10),
+                            GestureDetector(
+                              onTap: () async {
+                                await _authService.signOut();
+                                if (context.mounted) {
+                                  Navigator.pushReplacement(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) =>
+                                              const HomeScreen()));
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white
+                                      .withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.logout,
+                                    color: Colors.white, size: 18),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

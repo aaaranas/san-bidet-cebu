@@ -19,6 +19,15 @@ class SupabaseService {
     return (data as List).map((e) => Bidet.fromMap(e)).toList();
   }
 
+  // All bidets regardless of status — used for GIS export.
+  Future<List<Bidet>> getAllBidets() async {
+    final data = await _supabase
+        .from('bidets')
+        .select()
+        .order('created_at', ascending: true);
+    return (data as List).map((e) => Bidet.fromMap(e)).toList();
+  }
+
   Future<List<Bidet>> getPendingBidets() async {
     final data = await _supabase
         .from('bidets')
