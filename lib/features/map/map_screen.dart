@@ -1,4 +1,6 @@
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -9,6 +11,8 @@ import '../../widgets/bidet_card.dart';
 import '../bidet/bidet_add_screen.dart';
 import '../bidet/bidet_detail_screen.dart';
 import '../bidet/bidet_model.dart';
+import 'mobile_map.dart';
+import 'web_map_interop.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -18,10 +22,16 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  static const _green = Color(0xFF1A6B3C);
+  static const _green = Color(0xFF0F172A);
   static const _cebu = LatLng(10.3157, 123.8854);
 
+  // Mapbox access token — passed at build/run time via:
+  //   --dart-define=MAPBOX_TOKEN=pk.your_token_here
+  static const _mapboxToken = String.fromEnvironment('MAPBOX_TOKEN');
+
   final _mapController = MapController();
+  final _webController = WebMapController();
+  final _mobileController = MobileMapController();
   final _supabaseService = SupabaseService();
   final _locationService = LocationService();
   final _searchController = TextEditingController();
@@ -141,7 +151,13 @@ class _MapScreenState extends State<MapScreen> {
 
   void _selectAndFly(Bidet bidet) {
     setState(() => _selectedBidetId = bidet.id);
-    _mapController.move(LatLng(bidet.latitude, bidet.longitude), 17);
+    if (kIsWeb) {
+      _webController.flyTo(bidet.latitude, bidet.longitude, 17);
+    } else if (_useNativeMapbox) {
+      _mobileController.flyTo(bidet.latitude, bidet.longitude, 17);
+    } else {
+      _mapController.move(LatLng(bidet.latitude, bidet.longitude), 17);
+    }
   }
 
   @override
@@ -151,70 +167,7 @@ class _MapScreenState extends State<MapScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: const MapOptions(
-              initialCenter: _cebu,
-              initialZoom: 14,
-            ),
-            children: [
-              TileLayer(
-                key: ValueKey(_style.id),
-                urlTemplate: _style.url,
-                userAgentPackageName: 'com.example.san_bidet_cebu',
-                maxNativeZoom: 19,
-              ),
-              if (_style.overlayUrl != null)
-                TileLayer(
-                  key: ValueKey('${_style.id}-overlay'),
-                  urlTemplate: _style.overlayUrl!,
-                  userAgentPackageName: 'com.example.san_bidet_cebu',
-                  maxNativeZoom: 19,
-                ),
-              MarkerLayer(
-                markers: [
-                  if (_userPosition != null)
-                    Marker(
-                      point: LatLng(_userPosition!.latitude,
-                          _userPosition!.longitude),
-                      width: 24,
-                      height: 24,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.blue,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                              color: Colors.white, width: 3),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.blue.withValues(alpha: 0.4),
-                              blurRadius: 8,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ..._bidets.map((bidet) {
-                    final isSelected = _selectedBidetId == bidet.id;
-                    return Marker(
-                      point: LatLng(bidet.latitude, bidet.longitude),
-                      width: 44,
-                      height: 54,
-                      alignment: Alignment.bottomCenter,
-                      child: GestureDetector(
-                        onTap: () {
-                          _selectAndFly(bidet);
-                          _openDetail(bidet);
-                        },
-                        child: _buildMarker(isSelected),
-                      ),
-                    );
-                  }),
-                ],
-              ),
-            ],
-          ),
+          Positioned.fill(child: _buildMap()),
 
           // App bar
           SafeArea(
@@ -257,12 +210,13 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // Layer switcher
-          Positioned(
-            right: 16,
-            bottom: 312,
-            child: _buildLayerSwitcher(),
-          ),
+          // Layer switcher (raster styles only — not used by the web 3D map)
+          if (!kIsWeb)
+            Positioned(
+              right: 16,
+              bottom: 312,
+              child: _buildLayerSwitcher(),
+            ),
 
           // My location button
           Positioned(
@@ -272,11 +226,19 @@ class _MapScreenState extends State<MapScreen> {
               heroTag: 'locate',
               onPressed: () {
                 if (_userPosition != null) {
-                  _mapController.move(
-                    LatLng(_userPosition!.latitude,
-                        _userPosition!.longitude),
-                    15,
-                  );
+                  if (kIsWeb) {
+                    _webController.flyTo(_userPosition!.latitude,
+                        _userPosition!.longitude, 16);
+                  } else if (_useNativeMapbox) {
+                    _mobileController.flyTo(_userPosition!.latitude,
+                        _userPosition!.longitude, 16);
+                  } else {
+                    _mapController.move(
+                      LatLng(_userPosition!.latitude,
+                          _userPosition!.longitude),
+                      15,
+                    );
+                  }
                 } else {
                   _fetchLocation();
                 }
@@ -287,28 +249,29 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // Attribution badge
-          Positioned(
-            left: 12,
-            bottom: 312,
-            child: IgnorePointer(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.82),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  _style.attribution,
-                  style: TextStyle(
-                      fontSize: 9.5,
-                      color: Colors.grey.shade700,
-                      fontWeight: FontWeight.w500),
+          // Attribution badge (web shows Mapbox's own built-in attribution)
+          if (!kIsWeb)
+            Positioned(
+              left: 12,
+              bottom: 312,
+              child: IgnorePointer(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    _style.attribution,
+                    style: TextStyle(
+                        fontSize: 9.5,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w500),
+                  ),
                 ),
               ),
             ),
-          ),
 
           // Bottom sheet
           DraggableScrollableSheet(
@@ -466,6 +429,119 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  // True on Android/iOS, where the native Mapbox SDK is used.
+  bool get _useNativeMapbox =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  void _onMapboxMarkerTap(String id) {
+    final match = _bidets.where((b) => b.id == id);
+    if (match.isNotEmpty) {
+      _selectAndFly(match.first);
+      _openDetail(match.first);
+    }
+  }
+
+  Widget _buildMap() {
+    // Web: Mapbox GL JS v3 — 3D "Standard" style with pitch + 3D buildings.
+    if (kIsWeb) {
+      return WebMapboxMap(
+        controller: _webController,
+        token: _mapboxToken,
+        centerLat: _cebu.latitude,
+        centerLng: _cebu.longitude,
+        zoom: 15,
+        pitch: 55,
+        bidets: _bidets,
+        userLat: _userPosition?.latitude,
+        userLng: _userPosition?.longitude,
+        onMarkerTap: _onMapboxMarkerTap,
+      );
+    }
+
+    // Android/iOS: native Mapbox SDK — same 3D Standard style.
+    if (_useNativeMapbox) {
+      return MobileMapboxMap(
+        controller: _mobileController,
+        token: _mapboxToken,
+        centerLat: _cebu.latitude,
+        centerLng: _cebu.longitude,
+        zoom: 15,
+        pitch: 55,
+        bidets: _bidets,
+        userLat: _userPosition?.latitude,
+        userLng: _userPosition?.longitude,
+        onMarkerTap: _onMapboxMarkerTap,
+      );
+    }
+
+    // Desktop fallback: flutter_map raster tiles.
+    return FlutterMap(
+      mapController: _mapController,
+      options: const MapOptions(
+        initialCenter: _cebu,
+        initialZoom: 14,
+      ),
+      children: [
+        TileLayer(
+          key: ValueKey(_style.id),
+          urlTemplate: _style.url,
+          userAgentPackageName: 'com.example.san_bidet_cebu',
+          maxNativeZoom: 19,
+        ),
+        if (_style.overlayUrl != null)
+          TileLayer(
+            key: ValueKey('${_style.id}-overlay'),
+            urlTemplate: _style.overlayUrl!,
+            userAgentPackageName: 'com.example.san_bidet_cebu',
+            maxNativeZoom: 19,
+          ),
+        MarkerLayer(
+          markers: [
+            if (_userPosition != null)
+              Marker(
+                point:
+                    LatLng(_userPosition!.latitude, _userPosition!.longitude),
+                width: 24,
+                height: 24,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.blue,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.blue.withValues(alpha: 0.4),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ..._bidets.map((bidet) {
+              final isSelected = _selectedBidetId == bidet.id;
+              return Marker(
+                point: LatLng(bidet.latitude, bidet.longitude),
+                width: 44,
+                height: 54,
+                alignment: Alignment.bottomCenter,
+                child: GestureDetector(
+                  onTap: () {
+                    _selectAndFly(bidet);
+                    _openDetail(bidet);
+                  },
+                  child: _buildMarker(isSelected),
+                ),
+              );
+            }),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _buildLayerSwitcher() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
@@ -543,7 +619,7 @@ class _MapScreenState extends State<MapScreen> {
                 width: 30,
                 height: 30,
                 decoration: BoxDecoration(
-                  color: selected ? _green : const Color(0xFFF0F8F3),
+                  color: selected ? _green : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(

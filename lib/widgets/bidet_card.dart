@@ -79,7 +79,7 @@ class BidetCard extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF1A6B3C),
+                color: Color(0xFF0F172A),
               ),
             ),
           ],
@@ -106,7 +106,7 @@ class BidetCard extends StatelessWidget {
       case 'tabo':
         return Colors.blue;
       default:
-        return const Color(0xFF1A6B3C);
+        return const Color(0xFF0F172A);
     }
   }
 }

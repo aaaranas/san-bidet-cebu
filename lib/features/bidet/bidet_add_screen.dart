@@ -27,7 +27,7 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
   final _locationService = LocationService();
   final _imagePicker = ImagePicker();
 
-  static const _green = Color(0xFF1A6B3C);
+  static const _green = Color(0xFF0F172A);
 
   final _types = [
     ('spray_hose', 'Spray hose'),

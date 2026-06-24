@@ -31,6 +31,91 @@
 
   <title>san_bidet_cebu</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Mapbox GL JS v3 — 3D "Standard" style for the web map -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
+  <style>
+    .sb-marker {
+      width: 26px;
+      height: 26px;
+      background: #0F172A;
+      border: 2.5px solid #ffffff;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+      cursor: pointer;
+    }
+    .sb-user {
+      width: 16px;
+      height: 16px;
+      background: #2196F3;
+      border: 3px solid #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.3);
+    }
+  </style>
+  <script>
+    window.SanBidetMap = {
+      map: null,
+      markers: [],
+      userMarker: null,
+      onMarkerTap: null,
+      init: function (host, opts) {
+        mapboxgl.accessToken = opts.token;
+        this.map = new mapboxgl.Map({
+          container: host,
+          style: 'mapbox://styles/mapbox/standard',
+          center: [opts.lng, opts.lat],
+          zoom: opts.zoom,
+          pitch: opts.pitch,
+          bearing: -17,
+          antialias: true,
+        });
+        var self = this;
+        this.map.on('style.load', function () {
+          try {
+            self.map.setConfigProperty('basemap', 'lightPreset', 'dusk');
+          } catch (e) {}
+        });
+        this.map.on('load', function () { self.map.resize(); });
+        setTimeout(function () { if (self.map) self.map.resize(); }, 300);
+      },
+      setMarkers: function (list) {
+        if (!this.map) return;
+        this.markers.forEach(function (m) { m.remove(); });
+        this.markers = [];
+        var self = this;
+        (list || []).forEach(function (b) {
+          var el = document.createElement('div');
+          el.className = 'sb-marker';
+          el.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            if (self.onMarkerTap) self.onMarkerTap(b.id);
+          });
+          var marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+            .setLngLat([b.lng, b.lat])
+            .addTo(self.map);
+          self.markers.push(marker);
+        });
+      },
+      setUser: function (lng, lat) {
+        if (!this.map) return;
+        if (this.userMarker) { this.userMarker.remove(); this.userMarker = null; }
+        if (lng == null || lat == null) return;
+        var el = document.createElement('div');
+        el.className = 'sb-user';
+        this.userMarker = new mapboxgl.Marker({ element: el })
+          .setLngLat([lng, lat])
+          .addTo(this.map);
+      },
+      flyTo: function (lng, lat, zoom) {
+        if (this.map) {
+          this.map.flyTo({ center: [lng, lat], zoom: zoom, pitch: 60, essential: true });
+        }
+      },
+    };
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

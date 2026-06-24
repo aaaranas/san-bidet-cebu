@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../services/auth_service.dart';
 import '../map/map_screen.dart';
 
+/// shadcn "signup-01" block, adapted to Flutter via shadcn_ui.
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
 
@@ -18,10 +20,6 @@ class _SignupScreenState extends State<SignupScreen> {
 
   bool _loading = false;
   String? _error;
-  bool _showPassword = false;
-  bool _showConfirm = false;
-
-  static const _green = Color(0xFF1A6B3C);
 
   @override
   void dispose() {
@@ -79,185 +77,134 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
+  void _googleStub() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Google sign-up isn't set up yet.")),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
     final password = _passwordController.text;
     final strength = _passwordStrength(password);
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              color: _green,
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(32),
-                bottomRight: Radius.circular(32),
-              ),
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(28, 20, 28, 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.arrow_back,
-                            color: Colors.white, size: 18),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    const Icon(Icons.wc, color: Colors.white, size: 40),
-                    const SizedBox(height: 10),
-                    const Text('Create account',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.5)),
-                    const SizedBox(height: 6),
-                    Text(
-                        'Join the community and start\nmapping bidets across Cebu.',
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.75),
-                            fontSize: 14)),
-                  ],
+      backgroundColor: theme.colorScheme.muted,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: ShadCard(
+                width: double.infinity,
+                title: const Text('Create an account'),
+                description: const Text(
+                  'Enter your details below to create your account',
                 ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildField('Username', _usernameController,
-                      hint: 'e.g. bidet_hunter', prefix: '@'),
-                  const SizedBox(height: 16),
-                  _buildField('Email', _emailController,
-                      hint: 'you@email.com',
-                      keyboard: TextInputType.emailAddress),
-                  const SizedBox(height: 16),
-                  _buildPasswordField('Password', _passwordController,
-                      hint: 'At least 8 characters',
-                      visible: _showPassword,
-                      onToggle: () =>
-                          setState(() => _showPassword = !_showPassword)),
-                  if (password.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    _strengthIndicator(strength),
-                  ],
-                  const SizedBox(height: 16),
-                  _buildPasswordField(
-                      'Confirm password', _confirmController,
-                      hint: 'Re-enter your password',
-                      visible: _showConfirm,
-                      onToggle: () =>
-                          setState(() => _showConfirm = !_showConfirm)),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ShadInputFormField(
+                        controller: _usernameController,
+                        label: const Text('Username'),
+                        placeholder: const Text('bidet_hunter'),
                       ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.error_outline,
-                              color: Colors.red, size: 16),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(_error!,
-                                style: const TextStyle(
-                                    color: Colors.red, fontSize: 13)),
-                          ),
-                        ],
+                      const SizedBox(height: 16),
+                      ShadInputFormField(
+                        controller: _emailController,
+                        label: const Text('Email'),
+                        placeholder: const Text('m@example.com'),
+                        keyboardType: TextInputType.emailAddress,
                       ),
-                    ),
-                  ],
-                  const SizedBox(height: 28),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _loading ? null : _signup,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _green,
-                        foregroundColor: Colors.white,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        elevation: 0,
+                      const SizedBox(height: 16),
+                      ShadInputFormField(
+                        controller: _passwordController,
+                        label: const Text('Password'),
+                        placeholder: const Text('At least 8 characters'),
+                        obscureText: true,
+                        onChanged: (_) => setState(() {}),
                       ),
-                      child: _loading
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Text('Create account',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 15)),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Center(
-                    child: GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: RichText(
-                        text: TextSpan(
-                          text: 'Already have an account? ',
-                          style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 13),
-                          children: const [
-                            TextSpan(
-                              text: 'Sign in',
-                              style: TextStyle(
-                                  color: _green,
-                                  fontWeight: FontWeight.w600),
+                      if (password.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        _StrengthBar(strength: strength),
+                      ],
+                      const SizedBox(height: 16),
+                      ShadInputFormField(
+                        controller: _confirmController,
+                        label: const Text('Confirm password'),
+                        placeholder: const Text('Re-enter your password'),
+                        obscureText: true,
+                        onSubmitted: (_) => _loading ? null : _signup(),
+                      ),
+                      if (_error != null) ...[
+                        const SizedBox(height: 14),
+                        _ErrorBox(_error!),
+                      ],
+                      const SizedBox(height: 22),
+                      ShadButton(
+                        width: double.infinity,
+                        onPressed: _loading ? null : _signup,
+                        child: _loading
+                            ? const _Spinner()
+                            : const Text('Create account'),
+                      ),
+                      const SizedBox(height: 10),
+                      ShadButton.outline(
+                        width: double.infinity,
+                        onPressed: _googleStub,
+                        child: const Text('Sign up with Google'),
+                      ),
+                      const SizedBox(height: 18),
+                      Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Already have an account? ',
+                              style: theme.textTheme.muted,
+                            ),
+                            GestureDetector(
+                              onTap: () => Navigator.pop(context),
+                              child: Text(
+                                'Login',
+                                style: theme.textTheme.small.copyWith(
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
+}
 
-  Widget _strengthIndicator(int strength) {
-    final labels = [
-      '',
-      'Very weak',
-      'Weak',
-      'Fair',
-      'Strong',
-      'Very strong'
-    ];
+class _StrengthBar extends StatelessWidget {
+  final int strength;
+  const _StrengthBar({required this.strength});
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = ['', 'Very weak', 'Weak', 'Fair', 'Strong', 'Very strong'];
     final colors = [
       Colors.transparent,
       Colors.red,
       Colors.orange,
       Colors.yellow.shade700,
       Colors.lightGreen,
-      _green,
+      const Color(0xFF16A34A),
     ];
     final clamped = strength.clamp(0, 5);
     return Column(
@@ -270,9 +217,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 height: 4,
                 margin: EdgeInsets.only(right: i < 4 ? 4 : 0),
                 decoration: BoxDecoration(
-                  color: i < strength
-                      ? colors[clamped]
-                      : Colors.grey.shade200,
+                  color: i < strength ? colors[clamped] : Colors.grey.shade200,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -283,103 +228,50 @@ class _SignupScreenState extends State<SignupScreen> {
         Text(
           clamped > 0 ? labels[clamped] : '',
           style: TextStyle(
-              fontSize: 11,
-              color: colors[clamped],
-              fontWeight: FontWeight.w500),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildField(String label, TextEditingController controller,
-      {String hint = '',
-      String? prefix,
-      TextInputType keyboard = TextInputType.text}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500)),
-        const SizedBox(height: 6),
-        TextFormField(
-          controller: controller,
-          keyboardType: keyboard,
-          decoration: InputDecoration(
-            hintText: hint,
-            prefixText: prefix,
-            prefixStyle:
-                TextStyle(color: Colors.grey.shade500, fontSize: 13),
-            hintStyle:
-                TextStyle(color: Colors.grey.shade400, fontSize: 13),
-            contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14, vertical: 13),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _green),
-            ),
+            fontSize: 11,
+            color: colors[clamped],
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
     );
   }
+}
 
-  Widget _buildPasswordField(String label, TextEditingController controller,
-      {String hint = '',
-      required bool visible,
-      required VoidCallback onToggle}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500)),
-        const SizedBox(height: 6),
-        TextFormField(
-          controller: controller,
-          obscureText: !visible,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle:
-                TextStyle(color: Colors.grey.shade400, fontSize: 13),
-            contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14, vertical: 13),
-            suffixIcon: GestureDetector(
-              onTap: onToggle,
-              child: Icon(
-                visible ? Icons.visibility_off : Icons.visibility,
-                color: Colors.grey.shade400,
-                size: 20,
-              ),
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _green),
-            ),
-          ),
-        ),
-      ],
+class _ErrorBox extends StatelessWidget {
+  final String message;
+  const _ErrorBox(this.message);
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = ShadTheme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: cs.destructive.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        message,
+        style: TextStyle(color: cs.destructive, fontSize: 13),
+      ),
+    );
+  }
+}
+
+class _Spinner extends StatelessWidget {
+  const _Spinner();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 16,
+      width: 16,
+      child: CircularProgressIndicator(
+        strokeWidth: 2,
+        color: ShadTheme.of(context).colorScheme.primaryForeground,
+      ),
     );
   }
 }

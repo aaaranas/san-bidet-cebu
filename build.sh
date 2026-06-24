@@ -11,4 +11,4 @@ export PATH="$PATH:$FLUTTER_DIR/bin"
 
 flutter config --enable-web
 flutter pub get
-flutter build web --release
+flutter build web --release --dart-define=MAPBOX_TOKEN="$MAPBOX_TOKEN"

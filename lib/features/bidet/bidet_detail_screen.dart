@@ -13,7 +13,7 @@ class BidetDetailScreen extends StatelessWidget {
     required this.distance,
   });
 
-  static const _green = Color(0xFF1A6B3C);
+  static const _green = Color(0xFF0F172A);
 
   @override
   Widget build(BuildContext context) {

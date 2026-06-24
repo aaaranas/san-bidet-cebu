@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'features/home/home_screen.dart';
+import 'features/auth/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,14 +19,18 @@ class SanBidetApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return ShadApp(
       title: 'SanBidet Cebu',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF1A6B3C),
-        useMaterial3: true,
+      theme: ShadThemeData(
+        brightness: Brightness.light,
+        colorScheme: const ShadSlateColorScheme.light(),
       ),
-      home: const HomeScreen(),
+      // Slate palette for the Material screens too (M3 default).
+      materialThemeBuilder: (context, theme) => theme.copyWith(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0F172A)),
+      ),
+      home: const LoginScreen(),
     );
   }
 }

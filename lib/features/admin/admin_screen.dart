@@ -13,7 +13,7 @@ class AdminScreen extends StatefulWidget {
 }
 
 class _AdminScreenState extends State<AdminScreen> {
-  static const _green = Color(0xFF1A6B3C);
+  static const _green = Color(0xFF0F172A);
   final _supabaseService = SupabaseService();
   final _authService = AuthService();
   final _gisExport = GisExportService();
@@ -147,7 +147,7 @@ class _AdminScreenState extends State<AdminScreen> {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: const Color(0xFFF7FBF8),
+          color: const Color(0xFFF1F5F9),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.grey.shade200),
         ),
@@ -157,7 +157,7 @@ class _AdminScreenState extends State<AdminScreen> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: const Color(0xFFEAF7F0),
+                color: const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: _green, size: 20),
@@ -381,7 +381,7 @@ class _AdminScreenState extends State<AdminScreen> {
                                       Container(
                                         padding: const EdgeInsets.all(8),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFF0F8F3),
+                                          color: const Color(0xFFF1F5F9),
                                           borderRadius:
                                               BorderRadius.circular(8),
                                         ),
@@ -412,7 +412,7 @@ class _AdminScreenState extends State<AdminScreen> {
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFF0F8F3),
+                                          color: const Color(0xFFF1F5F9),
                                           borderRadius:
                                               BorderRadius.circular(6),
                                         ),
