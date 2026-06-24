@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../services/auth_service.dart';
-import '../map/map_screen.dart';
+import '../dashboard/dashboard_screen.dart';
 
 /// shadcn "signup-01" block, adapted to Flutter via shadcn_ui.
 class SignupScreen extends StatefulWidget {
@@ -20,14 +21,33 @@ class _SignupScreenState extends State<SignupScreen> {
 
   bool _loading = false;
   String? _error;
+  bool _navigated = false;
+  StreamSubscription<dynamic>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Covers returning from the Google OAuth redirect / an existing session.
+    _authSub = _auth.authStateChanges.listen((_) => _maybeRouteToMap());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeRouteToMap());
+  }
 
   @override
   void dispose() {
+    _authSub?.cancel();
     _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
     super.dispose();
+  }
+
+  void _maybeRouteToMap() {
+    if (_navigated || !mounted) return;
+    if (_auth.currentUser == null) return;
+    _navigated = true;
+    Navigator.pushReplacement(
+        context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
   }
 
   int _passwordStrength(String password) {
@@ -67,8 +87,9 @@ class _SignupScreenState extends State<SignupScreen> {
     try {
       await _auth.signUp(email, password, username: username);
       if (!mounted) return;
+      _navigated = true;
       Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const MapScreen()));
+          context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
     } catch (e) {
       setState(() {
         _error = 'Could not create account. Try again.';
@@ -77,10 +98,15 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  void _googleStub() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Google sign-up isn't set up yet.")),
-    );
+  Future<void> _googleSignIn() async {
+    try {
+      await _auth.signInWithGoogle();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not start Google sign-in.')),
+      );
+    }
   }
 
   @override
@@ -155,7 +181,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       const SizedBox(height: 10),
                       ShadButton.outline(
                         width: double.infinity,
-                        onPressed: _googleStub,
+                        onPressed: _googleSignIn,
                         child: const Text('Sign up with Google'),
                       ),
                       const SizedBox(height: 18),

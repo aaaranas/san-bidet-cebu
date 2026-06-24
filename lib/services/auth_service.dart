@@ -1,7 +1,24 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AuthService {
   final _supabase = Supabase.instance.client;
+
+  // Deep-link scheme used on Android/iOS to return from the Google sign-in
+  // browser. Must match the redirect registered in the Supabase dashboard and
+  // the platform deep-link config. On web, the OAuth flow returns to the site
+  // URL configured in Supabase, so no redirect is passed.
+  static const _mobileRedirect = 'io.supabase.sanbidetcebu://login-callback/';
+
+  /// Starts the Google OAuth flow. On web this redirects the page to Google
+  /// and back; on mobile it opens an external browser and returns via the
+  /// deep link. The resulting session arrives through [authStateChanges].
+  Future<void> signInWithGoogle() async {
+    await _supabase.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: kIsWeb ? null : _mobileRedirect,
+    );
+  }
 
   User? get currentUser => _supabase.auth.currentUser;
 

@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../services/auth_service.dart';
+import '../dashboard/dashboard_screen.dart';
 import '../map/map_screen.dart';
 import '../admin/admin_screen.dart';
 import 'signup_screen.dart';
@@ -20,12 +22,33 @@ class _LoginScreenState extends State<LoginScreen> {
   final _auth = AuthService();
   bool _loading = false;
   String? _error;
+  bool _navigated = false;
+  StreamSubscription<dynamic>? _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Route to the map when a session appears — this covers returning from the
+    // Google OAuth redirect (web reloads the page) and an existing session.
+    _authSub = _auth.authStateChanges.listen((_) => _maybeRouteToMap());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeRouteToMap());
+  }
 
   @override
   void dispose() {
+    _authSub?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  // Admin login uses its own routing; everyone else lands on the dashboard.
+  void _maybeRouteToMap() {
+    if (_navigated || widget.isAdmin || !mounted) return;
+    if (_auth.currentUser == null) return;
+    _navigated = true;
+    Navigator.pushReplacement(
+        context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
   }
 
   Future<void> _login() async {
@@ -52,11 +75,11 @@ class _LoginScreenState extends State<LoginScreen> {
           });
           return;
         }
+        _navigated = true;
         Navigator.pushReplacement(context,
             MaterialPageRoute(builder: (_) => const AdminScreen()));
       } else {
-        Navigator.pushReplacement(context,
-            MaterialPageRoute(builder: (_) => const MapScreen()));
+        _maybeRouteToMap();
       }
     } catch (e) {
       setState(() {
@@ -66,10 +89,17 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _googleStub() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Google sign-in isn't set up yet.")),
-    );
+  Future<void> _googleSignIn() async {
+    try {
+      await _auth.signInWithGoogle();
+      // Web: the page redirects away now. Mobile: returns via the auth
+      // listener. Nothing else to do here.
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not start Google sign-in.')),
+      );
+    }
   }
 
   void _forgotStub() {
@@ -143,7 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 10),
                       ShadButton.outline(
                         width: double.infinity,
-                        onPressed: _googleStub,
+                        onPressed: _googleSignIn,
                         child: const Text('Login with Google'),
                       ),
                       if (!widget.isAdmin) ...[
