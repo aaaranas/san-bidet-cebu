@@ -10,12 +10,16 @@ class BidetCard extends StatelessWidget {
     required this.distance,
     required this.onTap,
     this.selected = false,
+    this.rated = false,
   });
 
   final Bidet bidet;
   final String distance;
   final VoidCallback onTap;
   final bool selected;
+
+  /// True when the signed-in user has already rated this one.
+  final bool rated;
 
   /// Icon per bidet type. The previous version switched on a 'hotel' type that
   /// does not exist, so bidet seats silently fell through to the default.
@@ -96,6 +100,17 @@ class BidetCard extends StatelessWidget {
                         style: AppType.body(
                             size: 12.5, color: p.mutedForeground),
                       ),
+                      if (rated) ...[
+                        const SizedBox(width: 6),
+                        Icon(Icons.check_circle,
+                            size: 12, color: AppColors.green),
+                        const SizedBox(width: 2),
+                        Text(
+                          'Rated',
+                          style: AppType.body(
+                              size: 11.5, color: AppColors.green),
+                        ),
+                      ],
                       const SizedBox(width: 6),
                       Flexible(
                         child: Text(

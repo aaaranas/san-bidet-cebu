@@ -9,6 +9,9 @@ import 'package:san_bidet_cebu/data/models/bidet.dart';
 import 'package:san_bidet_cebu/services/location_service.dart';
 import 'package:san_bidet_cebu/widgets/app_widgets.dart';
 import 'package:san_bidet_cebu/widgets/bidet_card.dart';
+import 'package:san_bidet_cebu/features/dashboard/dashboard_screen.dart';
+import 'package:san_bidet_cebu/features/bidet/bidet_detail_screen.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'fakes.dart';
 
@@ -40,6 +43,152 @@ Widget wrap(
 }
 
 void main() {
+  // Tests have no network; without this google_fonts logs a fetch failure for
+  // every style resolved and slows the suite down. The fallback face is fine
+  // for layout assertions.
+  setUpAll(() => GoogleFonts.config.allowRuntimeFetching = false);
+
+  group('DashboardScreen', () {
+    testWidgets('renders the shadcn blocks against live data', (tester) async {
+      final bidets = FakeBidetRepository(bidets: [
+        makeBidet(id: 'a', placeName: 'SM City Cebu', rating: 4.4, ratingCount: 9),
+        makeBidet(
+          id: 'b',
+          placeName: 'Ayala Center',
+          type: BidetType.bidetSeat,
+          rating: 4.9,
+          ratingCount: 3,
+        ),
+        makeBidet(id: 'c', placeName: 'Robinsons', type: BidetType.tabo),
+      ]);
+      final auth = FakeAuthRepository(
+        user: const AppUser(id: 'u1', email: 'a@b.com', username: 'tester'),
+      );
+      addTearDown(() {
+        bidets.dispose();
+        auth.dispose();
+      });
+
+      await tester.pumpWidget(
+        wrap(const DashboardScreen(),
+            bidets: bidets, auth: auth, size: const Size(900, 1600)),
+      );
+      await tester.pumpAndSettle();
+
+      // Header and section cards are above the fold.
+      expect(find.text('Dashboard'), findsOneWidget);
+      expect(find.text('Welcome back, tester'), findsOneWidget);
+      expect(find.text('Bidets mapped'), findsOneWidget);
+      expect(find.text('Added per month'), findsOneWidget);
+
+      // The ListView builds lazily, so the lower blocks need scrolling to.
+      await tester.scrollUntilVisible(find.text('Browse'), 300,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Browse'), findsOneWidget);
+      expect(find.text('SM City Cebu'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('switching a tab reorders the table', (tester) async {
+      final bidets = FakeBidetRepository(bidets: [
+        makeBidet(id: 'a', placeName: 'Zebra Mall', rating: 2.0, ratingCount: 4),
+        makeBidet(id: 'b', placeName: 'Alpha Mall', rating: 4.9, ratingCount: 4),
+      ]);
+      final auth = FakeAuthRepository(
+        user: const AppUser(id: 'u1', username: 'tester'),
+      );
+      addTearDown(() {
+        bidets.dispose();
+        auth.dispose();
+      });
+
+      await tester.pumpWidget(
+        wrap(const DashboardScreen(),
+            bidets: bidets, auth: auth, size: const Size(900, 1600)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(find.text('Top rated'), 300,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Top rated'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Alpha Mall'), findsWidgets);
+    });
+  });
+
+  group('BidetDetailScreen', () {
+    testWidgets('shows access, cost, attribution and directions',
+        (tester) async {
+      final bidet = makeBidet(id: 'a', rating: 4.4, ratingCount: 6).copyWith(
+        accessType: AccessType.customer,
+        hoursNote: 'Mall hours',
+        feeNote: 'PHP 5',
+        submittedByUsername: 'bidet_hunter',
+      );
+      final bidets = FakeBidetRepository(bidets: [bidet]);
+      addTearDown(bidets.dispose);
+
+      await tester.pumpWidget(
+        wrap(
+          BidetDetailScreen(
+            bidetId: 'a',
+            initial: BidetDetailArgs(bidet: bidet, distance: '350m'),
+          ),
+          bidets: bidets,
+          size: const Size(500, 1400),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Customers only'), findsWidgets);
+      expect(find.text('Mall hours'), findsOneWidget);
+      expect(find.text('PHP 5'), findsOneWidget);
+      expect(find.text('@bidet_hunter'), findsOneWidget);
+      expect(find.text('Directions'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('offers to change an existing rating', (tester) async {
+      final bidet = makeBidet(id: 'a', rating: 4.0, ratingCount: 2);
+      final bidets = FakeBidetRepository(bidets: [bidet]);
+      bidets.myRatings['a'] = const BidetRating(
+        cleanliness: 4,
+        pressure: 4,
+        accessibility: 4,
+        privacy: 4,
+      );
+      final auth = FakeAuthRepository(
+        user: const AppUser(id: 'u1', username: 'tester'),
+      );
+      addTearDown(() {
+        bidets.dispose();
+        auth.dispose();
+      });
+
+      await tester.pumpWidget(
+        wrap(
+          BidetDetailScreen(
+            bidetId: 'a',
+            initial: BidetDetailArgs(bidet: bidet, distance: '350m'),
+          ),
+          bidets: bidets,
+          auth: auth,
+          size: const Size(500, 1400),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Reading your own rating back is what turns the blank form into an edit.
+      expect(find.text('Change your rating'), findsOneWidget);
+      expect(find.textContaining('You rated this'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('BidetCard', () {
     testWidgets('shows name, rating and distance', (tester) async {
       await tester.pumpWidget(
@@ -86,6 +235,18 @@ void main() {
         );
         expect(find.byIcon(icon), findsOneWidget, reason: '$type');
       }
+    });
+
+    testWidgets('marks a bidet the user already rated', (tester) async {
+      await tester.pumpWidget(
+        wrap(BidetCard(
+          bidet: makeBidet(rating: 4.0, ratingCount: 3),
+          distance: '120m',
+          rated: true,
+          onTap: () {},
+        )),
+      );
+      expect(find.text('Rated'), findsOneWidget);
     });
 
     testWidgets('reports taps', (tester) async {

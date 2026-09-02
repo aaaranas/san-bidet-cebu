@@ -1,10 +1,14 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/router.dart';
 import '../../core/theme.dart';
+import '../../services/place_actions.dart';
+import '../../data/bidet_repository.dart';
 import '../../data/models/bidet.dart';
 import '../../widgets/app_widgets.dart';
 
@@ -33,18 +37,64 @@ class BidetDetailScreen extends StatefulWidget {
 }
 
 class _BidetDetailScreenState extends State<BidetDetailScreen> {
+  static const _actions = PlaceActions();
+
   Bidet? _bidet;
   Object? _error;
   bool _loading = false;
   bool _submittingRating = false;
 
-  String get _distance => widget.initial?.distance ?? '';
+  /// This user's existing rating, so the sheet opens pre-filled and the screen
+  /// can say "you rated this" instead of pretending they never did.
+  BidetRating? _myRating;
+
+  /// Distance computed here when the screen was opened cold (a shared link),
+  /// rather than only when handed in from the map.
+  String? _measuredDistance;
+
+  String get _distance =>
+      widget.initial?.distance.isNotEmpty == true
+          ? widget.initial!.distance
+          : (_measuredDistance ?? '');
 
   @override
   void initState() {
     super.initState();
     _bidet = widget.initial?.bidet;
-    if (_bidet == null) _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_bidet == null) {
+        _load();
+      } else {
+        _loadMyRating();
+        _measureDistance();
+      }
+    });
+  }
+
+  /// A shared link arrives with no distance attached, so measure it.
+  Future<void> _measureDistance() async {
+    final bidet = _bidet;
+    if (bidet == null || widget.initial?.distance.isNotEmpty == true) return;
+
+    final location = context.location;
+    final result = await location.getCurrentPosition();
+    if (!mounted || !result.ok) return;
+    final meters = location.distanceBetween(
+      LatLng(result.position!.latitude, result.position!.longitude),
+      LatLng(bidet.latitude, bidet.longitude),
+    );
+    setState(() => _measuredDistance = location.formatDistance(meters));
+  }
+
+  Future<void> _loadMyRating() async {
+    if (!context.session.isSignedIn) return;
+    try {
+      final mine = await context.bidets.fetchMyRating(widget.bidetId);
+      if (mounted) setState(() => _myRating = mine);
+    } catch (_) {
+      // Not being able to read your own rating is not worth an error state.
+    }
   }
 
   Future<void> _load() async {
@@ -59,6 +109,8 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
         _bidet = bidet;
         _loading = false;
       });
+      _loadMyRating();
+      _measureDistance();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -68,23 +120,79 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
     }
   }
 
+  Future<void> _report(Bidet bidet) async {
+    if (!context.session.isSignedIn) {
+      final go = await _askToSignIn(
+        'Sign in to report',
+        'Reports are tied to your account so moderators can follow up.',
+      );
+      if (go && mounted) context.push(Routes.login);
+      return;
+    }
+
+    final result = await showShadSheet<({ReportKind kind, String note})>(
+      context: context,
+      side: ShadSheetSide.bottom,
+      builder: (_) => const _ReportSheet(),
+    );
+    if (result == null || !mounted) return;
+
+    final repo = context.bidets;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await repo.report(bidet.id, result.kind, result.note);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Thanks — a moderator will take a look.'),
+        ),
+      );
+    } on BidetFailure catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not send that report.')),
+      );
+    }
+  }
+
+  Future<bool> _askToSignIn(String title, String body) async {
+    final go = await showShadDialog<bool>(
+      context: context,
+      builder: (ctx) => ShadDialog.alert(
+        title: Text(title),
+        description: Text(body),
+        actions: [
+          ShadButton.outline(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not now'),
+          ),
+          ShadButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sign in'),
+          ),
+        ],
+      ),
+    );
+    return go ?? false;
+  }
+
   Future<void> _rate() async {
     final session = context.session;
     if (!session.isSignedIn) {
-      final go = await showDialog<bool>(
+      final go = await showShadDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => ShadDialog.alert(
           title: const Text('Sign in to rate'),
-          content: const Text(
+          description: const Text(
             'Ratings are tied to your account so each person rates a bidet '
             'once. Sign in to continue.',
           ),
           actions: [
-            TextButton(
+            ShadButton.outline(
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Not now'),
             ),
-            FilledButton(
+            ShadButton(
               onPressed: () => Navigator.pop(ctx, true),
               child: const Text('Sign in'),
             ),
@@ -99,7 +207,7 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => const _RatingSheet(),
+      builder: (_) => _RatingSheet(initial: _myRating),
     );
     if (rating == null || !mounted) return;
 
@@ -113,6 +221,7 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
       if (!mounted) return;
       setState(() {
         _bidet = updated;
+        _myRating = rating;
         _submittingRating = false;
       });
       messenger.showSnackBar(
@@ -146,6 +255,27 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
           onPressed: () =>
               context.canPop() ? context.pop() : context.go(Routes.map),
         ),
+        actions: bidet == null
+            ? null
+            : [
+                IconButton(
+                  tooltip: 'Share',
+                  icon: const Icon(Icons.ios_share, size: 20),
+                  onPressed: () => _actions.share(bidet),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'More',
+                  onSelected: (v) {
+                    if (v == 'report') _report(bidet);
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'report',
+                      child: Text('Report a problem'),
+                    ),
+                  ],
+                ),
+              ],
       ),
       body: switch ((bidet, _loading, _error)) {
         (_, true, _) => const Center(child: CircularProgressIndicator()),
@@ -153,7 +283,7 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
             icon: Icons.search_off,
             title: 'Bidet not found',
             message: 'It may have been removed.',
-            action: FilledButton(
+            action: ShadButton(
               onPressed: () => context.go(Routes.map),
               child: const Text('Back to map'),
             ),
@@ -240,6 +370,8 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
                     runSpacing: Insets.sm,
                     children: [
                       _Badge(bidet.typeLabel),
+                      if (bidet.accessType != AccessType.public)
+                        _Badge(bidet.accessType.label),
                       if (_distance.isNotEmpty) _Badge(_distance),
                       const _Badge('Free'),
                     ],
@@ -267,25 +399,64 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
                   ],
                   _DetailRow('Location', bidet.floor),
                   _DetailRow('Type', bidet.typeLabel),
+                  _DetailRow('Access', bidet.accessType.label),
+                  if (bidet.hoursNote?.isNotEmpty ?? false)
+                    _DetailRow('Hours', bidet.hoursNote!),
+                  _DetailRow(
+                    'Cost',
+                    (bidet.feeNote?.isNotEmpty ?? false)
+                        ? bidet.feeNote!
+                        : 'Free',
+                  ),
                   _DetailRow('Added', _formatDate(bidet.createdAt)),
+                  if (bidet.submittedByUsername != null)
+                    _DetailRow('Added by', '@${bidet.submittedByUsername}'),
                   _DetailRow('Total ratings', '${bidet.ratingCount}'),
                   const SizedBox(height: Insets.xl),
-                  SizedBox(
+
+                  // Knowing where it is was never enough — this is how you get
+                  // there.
+                  ShadButton(
                     width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _submittingRating ? null : _rate,
-                      child: _submittingRating
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text('Rate this bidet'),
-                    ),
+                    size: ShadButtonSize.lg,
+                    leading: const Icon(Icons.directions_walk, size: 17),
+                    onPressed: () => _actions.openDirections(bidet),
+                    child: const Text('Directions'),
                   ),
+                  const SizedBox(height: Insets.sm),
+                  ShadButton.outline(
+                    width: double.infinity,
+                    size: ShadButtonSize.lg,
+                    onPressed: _submittingRating ? null : _rate,
+                    child: _submittingRating
+                        ? const SizedBox(
+                            height: 17,
+                            width: 17,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(
+                            _myRating == null
+                                ? 'Rate this bidet'
+                                : 'Change your rating',
+                          ),
+                  ),
+                  if (_myRating != null) ...[
+                    const SizedBox(height: Insets.sm),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.check_circle,
+                            size: 14, color: p.primary),
+                        const SizedBox(width: 6),
+                        Text(
+                          'You rated this '
+                          '${_myRating!.overall.toStringAsFixed(1)}',
+                          style: AppType.body(
+                              size: 12.5, color: p.mutedForeground),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -345,14 +516,9 @@ class _RatingBar extends StatelessWidget {
             child: Text(label, style: context.texts.bodyMedium),
           ),
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(Radii.xs),
-              child: LinearProgressIndicator(
-                value: (value / 5).clamp(0.0, 1.0),
-                backgroundColor: p.border,
-                valueColor: AlwaysStoppedAnimation(p.primary),
-                minHeight: 8,
-              ),
+            child: ShadProgress(
+              value: (value / 5).clamp(0.0, 1.0),
+              minHeight: 8,
             ),
           ),
           const SizedBox(width: Insets.sm),
@@ -404,17 +570,20 @@ class _DetailRow extends StatelessWidget {
 }
 
 class _RatingSheet extends StatefulWidget {
-  const _RatingSheet();
+  const _RatingSheet({this.initial});
+
+  /// Existing rating, so re-rating starts from what you said last time.
+  final BidetRating? initial;
 
   @override
   State<_RatingSheet> createState() => _RatingSheetState();
 }
 
 class _RatingSheetState extends State<_RatingSheet> {
-  int _cleanliness = 0;
-  int _pressure = 0;
-  int _accessibility = 0;
-  int _privacy = 0;
+  late int _cleanliness = widget.initial?.cleanliness.round() ?? 0;
+  late int _pressure = widget.initial?.pressure.round() ?? 0;
+  late int _accessibility = widget.initial?.accessibility.round() ?? 0;
+  late int _privacy = widget.initial?.privacy.round() ?? 0;
 
   bool get _complete =>
       _cleanliness > 0 && _pressure > 0 && _accessibility > 0 && _privacy > 0;
@@ -462,25 +631,125 @@ class _RatingSheetState extends State<_RatingSheet> {
                 onChanged: (v) => setState(() => _privacy = v),
               ),
               const SizedBox(height: Insets.xl),
-              SizedBox(
+              ShadButton(
                 width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: !_complete
-                      ? null
-                      : () => Navigator.pop(
-                            context,
-                            BidetRating(
-                              cleanliness: _cleanliness.toDouble(),
-                              pressure: _pressure.toDouble(),
-                              accessibility: _accessibility.toDouble(),
-                              privacy: _privacy.toDouble(),
-                            ),
+                size: ShadButtonSize.lg,
+                onPressed: !_complete
+                    ? null
+                    : () => Navigator.pop(
+                          context,
+                          BidetRating(
+                            cleanliness: _cleanliness.toDouble(),
+                            pressure: _pressure.toDouble(),
+                            accessibility: _accessibility.toDouble(),
+                            privacy: _privacy.toDouble(),
                           ),
-                  child: const Text('Submit rating'),
-                ),
+                        ),
+                child: const Text('Submit rating'),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Flagging a listing that has gone stale. Physical amenities close, break and
+/// get renovated, so this is the only route by which the map corrects itself.
+class _ReportSheet extends StatefulWidget {
+  const _ReportSheet();
+
+  @override
+  State<_ReportSheet> createState() => _ReportSheetState();
+}
+
+class _ReportSheetState extends State<_ReportSheet> {
+  ReportKind _kind = ReportKind.gone;
+  final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final cs = context.shad;
+
+    return ShadSheet(
+      title: const Text('Report a problem'),
+      description: const Text(
+        'Moderators use these to keep the map honest.',
+      ),
+      actions: [
+        ShadButton(
+          onPressed: () => Navigator.pop(
+            context,
+            (kind: _kind, note: _note.text),
+          ),
+          child: const Text('Send report'),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Insets.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final kind in ReportKind.values)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Insets.sm),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(Radii.sm),
+                  onTap: () => setState(() => _kind = kind),
+                  child: Container(
+                    padding: const EdgeInsets.all(Insets.md),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(Radii.sm),
+                      border: Border.all(
+                        color: _kind == kind ? cs.primary : cs.border,
+                        width: _kind == kind ? 1.5 : 1,
+                      ),
+                      color: _kind == kind
+                          ? cs.primary.withValues(alpha: 0.06)
+                          : null,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _kind == kind
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked,
+                          size: 18,
+                          color:
+                              _kind == kind ? cs.primary : cs.mutedForeground,
+                        ),
+                        const SizedBox(width: Insets.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(kind.label, style: theme.textTheme.small),
+                              const SizedBox(height: 1),
+                              Text(kind.hint, style: theme.textTheme.muted),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            const SizedBox(height: Insets.sm),
+            ShadInput(
+              controller: _note,
+              placeholder: const Text('Anything else we should know?'),
+              maxLines: 3,
+            ),
+          ],
         ),
       ),
     );

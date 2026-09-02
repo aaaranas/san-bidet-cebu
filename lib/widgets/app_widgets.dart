@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../core/theme.dart';
 
@@ -174,6 +175,10 @@ class BrandPill extends StatelessWidget {
 
 /// One labelled form field. Replaces three near-identical private `_field` /
 /// `_buildField` / `_inputDecoration` helpers.
+/// A labelled form field.
+///
+/// Backed by `ShadInputFormField` so it matches the auth screens, which use
+/// shadcn directly. The Dart API is unchanged, so callers did not have to move.
 class AppTextField extends StatelessWidget {
   const AppTextField({
     super.key,
@@ -208,43 +213,41 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: context.texts.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextFormField(
-          controller: controller,
-          obscureText: obscure,
-          enabled: enabled,
-          keyboardType: keyboardType,
-          textInputAction: textInputAction,
-          autofillHints: autofillHints,
-          validator: validator,
-          onChanged: onChanged,
-          onFieldSubmitted: onSubmitted,
-          decoration: InputDecoration(
-            hintText: hint,
-            prefixText: prefixText,
-            suffixIcon: onToggleObscure == null
-                ? null
-                : IconButton(
-                    onPressed: onToggleObscure,
-                    tooltip: obscure ? 'Show password' : 'Hide password',
-                    icon: Icon(
-                      obscure ? Icons.visibility : Icons.visibility_off,
-                      color: context.shad.mutedForeground,
-                      size: 20,
-                    ),
-                  ),
-          ),
-        ),
-      ],
+    final cs = context.shad;
+    return ShadInputFormField(
+      controller: controller,
+      enabled: enabled,
+      obscureText: obscure,
+      keyboardType: keyboardType,
+      textInputAction: textInputAction,
+      autofillHints: autofillHints ?? const <String>[],
+      validator: validator == null ? null : (v) => validator!(v),
+      onChanged: onChanged,
+      onSubmitted: onSubmitted,
+      label: Text(label),
+      placeholder: hint == null ? null : Text(hint!),
+      leading: prefixText == null
+          ? null
+          : Padding(
+              padding: const EdgeInsets.only(right: 2),
+              child: Text(
+                prefixText!,
+                style: AppType.body(size: 14, color: cs.mutedForeground),
+              ),
+            ),
+      trailing: onToggleObscure == null
+          ? null
+          : ShadIconButton.ghost(
+              width: 24,
+              height: 24,
+              padding: EdgeInsets.zero,
+              onPressed: onToggleObscure,
+              icon: Icon(
+                obscure ? Icons.visibility : Icons.visibility_off,
+                size: 17,
+                color: cs.mutedForeground,
+              ),
+            ),
     );
   }
 }

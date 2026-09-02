@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -8,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/app_scope.dart';
 import '../../core/router.dart';
 import '../../core/theme.dart';
+import '../../data/bidet_repository.dart';
 import '../../data/models/bidet.dart';
 import '../../widgets/app_widgets.dart';
 
@@ -25,6 +27,9 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
   final _imagePicker = ImagePicker();
 
   BidetType _type = BidetType.sprayHose;
+  AccessType _access = AccessType.public;
+  final _hoursController = TextEditingController();
+  final _feeController = TextEditingController();
   Position? _position;
   XFile? _image;
   Uint8List? _imageBytes;
@@ -37,6 +42,8 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
   void dispose() {
     _placeController.dispose();
     _floorController.dispose();
+    _hoursController.dispose();
+    _feeController.dispose();
     super.dispose();
   }
 
@@ -76,6 +83,66 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
     }
   }
 
+  /// Shown when something already exists within ~120m. Returns true if the
+  /// user says it is genuinely a different bidet.
+  Future<bool> _confirmNotDuplicate(List<NearbyBidet> nearby) async {
+    final theme = ShadTheme.of(context);
+    final proceed = await showShadDialog<bool>(
+      context: context,
+      builder: (ctx) => ShadDialog.alert(
+        title: const Text('Already mapped?'),
+        description: Text(
+          nearby.length == 1
+              ? 'There is already a bidet very close to here.'
+              : 'There are already ${nearby.length} bidets close to here.',
+        ),
+        actions: [
+          ShadButton.outline(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Never mind'),
+          ),
+          ShadButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Mine is different'),
+          ),
+        ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: Insets.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final n in nearby)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          n.floor.isEmpty
+                              ? n.placeName
+                              : '${n.placeName} — ${n.floor}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.small,
+                        ),
+                      ),
+                      const SizedBox(width: Insets.sm),
+                      Text(
+                        '${n.distanceMeters.round()}m',
+                        style: theme.textTheme.muted,
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return proceed ?? false;
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_position == null) {
@@ -94,6 +161,21 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
     });
 
     try {
+      // Two people can easily add the same mall restroom. Catch it before the
+      // row exists, rather than leaving a mess to clean up afterwards.
+      final nearby = await repo.findNearby(
+        _position!.latitude,
+        _position!.longitude,
+      );
+      if (nearby.isNotEmpty && mounted) {
+        final proceed = await _confirmNotDuplicate(nearby);
+        if (!proceed) {
+          if (mounted) setState(() => _submitting = false);
+          return;
+        }
+      }
+      if (!mounted) return;
+
       final created = await repo.add(
         Bidet(
           id: '',
@@ -103,6 +185,9 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
           latitude: _position!.latitude,
           longitude: _position!.longitude,
           createdAt: DateTime.now(),
+          accessType: _access,
+          hoursNote: _hoursController.text.trim(),
+          feeNote: _feeController.text.trim(),
         ),
         userId: userId,
       );
@@ -136,9 +221,15 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
         ),
       );
       router.canPop() ? router.pop() : router.go(Routes.map);
-    } catch (e) {
-      // Previously any failure here left the button spinning forever with no
-      // message at all.
+    } on BidetFailure catch (e) {
+      // Show the real reason. A generic "check your connection" sent people
+      // looking at their wifi when the database was rejecting the row.
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _error = e.message;
+      });
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _submitting = false;
@@ -194,30 +285,58 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
                   const SizedBox(height: Insets.xl),
                   Text('Bidet type', style: context.texts.bodyMedium),
                   const SizedBox(height: Insets.sm),
-                  Wrap(
-                    spacing: Insets.sm,
-                    runSpacing: Insets.sm,
-                    children: BidetType.values.map((t) {
-                      final selected = _type == t;
-                      return ChoiceChip(
-                        label: Text(t.label),
-                        selected: selected,
-                        onSelected: _submitting
-                            ? null
-                            : (_) => setState(() => _type = t),
-                        showCheckmark: false,
-                        selectedColor: p.primary.withValues(alpha: 0.12),
-                        side: BorderSide(
-                          color: selected ? p.primary : p.border,
-                        ),
-                        labelStyle: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight:
-                              selected ? FontWeight.w700 : FontWeight.w500,
-                          color: selected ? p.primary : p.mutedForeground,
-                        ),
-                      );
-                    }).toList(),
+                  ShadSelectFormField<BidetType>(
+                    initialValue: _type,
+                    enabled: !_submitting,
+                    minWidth: double.infinity,
+                    placeholder: const Text('Choose a type'),
+                    options: [
+                      for (final t in BidetType.values)
+                        ShadOption(value: t, child: Text(t.label)),
+                    ],
+                    selectedOptionBuilder: (context, value) =>
+                        Text(value.label),
+                    onChanged: (v) {
+                      if (v != null) setState(() => _type = v);
+                    },
+                  ),
+                  const SizedBox(height: Insets.xl),
+
+                  // Access reality. "3rd floor near the cinemas" does not say
+                  // whether you can actually walk in, which is usually what
+                  // decides whether the trip is worth it.
+                  Text('Who can use it', style: context.texts.bodyMedium),
+                  const SizedBox(height: Insets.sm),
+                  ShadSelectFormField<AccessType>(
+                    initialValue: _access,
+                    enabled: !_submitting,
+                    minWidth: double.infinity,
+                    placeholder: const Text('Choose access'),
+                    options: [
+                      for (final a in AccessType.values)
+                        ShadOption(value: a, child: Text(a.label)),
+                    ],
+                    selectedOptionBuilder: (context, value) =>
+                        Text(value.label),
+                    onChanged: (v) {
+                      if (v != null) setState(() => _access = v);
+                    },
+                  ),
+                  const SizedBox(height: Insets.lg),
+                  AppTextField(
+                    label: 'When is it open (optional)',
+                    controller: _hoursController,
+                    hint: 'e.g. Mall hours, 10am–9pm',
+                    enabled: !_submitting,
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: Insets.lg),
+                  AppTextField(
+                    label: 'Any cost (optional)',
+                    controller: _feeController,
+                    hint: 'Leave blank if free',
+                    enabled: !_submitting,
+                    textInputAction: TextInputAction.next,
                   ),
                   const SizedBox(height: Insets.xl),
                   Text('Your location', style: context.texts.bodyMedium),
@@ -264,12 +383,14 @@ class _BidetAddScreenState extends State<BidetAddScreen> {
                   const SizedBox(height: Insets.xxl),
                   SizedBox(
                     width: double.infinity,
-                    child: ElevatedButton(
+                    child: ShadButton(
+                      width: double.infinity,
+                      size: ShadButtonSize.lg,
                       onPressed: _submitting ? null : _submit,
                       child: _submitting
                           ? const SizedBox(
-                              height: 18,
-                              width: 18,
+                              height: 17,
+                              width: 17,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: Colors.white,

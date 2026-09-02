@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/app_scope.dart';
 import '../../core/router.dart';
 import '../../core/theme.dart';
 import '../../data/models/bidet.dart';
+import '../bidet/bidet_detail_screen.dart';
 import '../../services/gis_export_service.dart';
 import '../../widgets/app_widgets.dart';
 
@@ -19,6 +21,9 @@ class _AdminScreenState extends State<AdminScreen> {
   final _gisExport = const GisExportService();
 
   List<Bidet> _pending = const [];
+  List<Bidet> _approved = const [];
+  Map<String, int> _reportCounts = const {};
+  int _tab = 0; // 0 = queue, 1 = approved
   int _approvedCount = 0;
   bool _loading = true;
   bool _exporting = false;
@@ -44,12 +49,16 @@ class _AdminScreenState extends State<AdminScreen> {
       // The stat cards used to render a hardcoded em dash.
       final results = await Future.wait([
         repo.fetchPending(),
-        repo.countApproved(),
+        repo.fetchApproved(),
+        repo.fetchOpenReportCounts(),
       ]);
       if (!mounted) return;
+      final approved = results[1] as List<Bidet>;
       setState(() {
         _pending = results[0] as List<Bidet>;
-        _approvedCount = results[1] as int;
+        _approved = approved;
+        _reportCounts = results[2] as Map<String, int>;
+        _approvedCount = approved.length;
         _loading = false;
       });
     } catch (e) {
@@ -93,30 +102,14 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 
   Future<void> _reject(Bidet bidet) async {
-    final confirmed = await showDialog<bool>(
+    // Rejecting used to hard-delete, so the contributor got no feedback and
+    // nothing stopped them re-adding the same place. Now it keeps the row with
+    // a reason they can see on their dashboard.
+    final reason = await showShadDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reject submission?'),
-        content: Text(
-          '"${bidet.placeName}" will be permanently deleted. '
-          'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Reject'),
-          ),
-        ],
-      ),
+      builder: (ctx) => _RejectDialog(placeName: bidet.placeName),
     );
-    if (confirmed != true || !mounted) return;
+    if (reason == null || !mounted) return;
 
     final repo = context.bidets;
     final messenger = ScaffoldMessenger.of(context);
@@ -127,9 +120,9 @@ class _AdminScreenState extends State<AdminScreen> {
     });
 
     try {
-      await repo.delete(bidet.id);
+      await repo.reject(bidet.id, reason);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Submission rejected.')),
+        const SnackBar(content: Text('Rejected, with your reason recorded.')),
       );
     } catch (_) {
       if (!mounted) return;
@@ -257,42 +250,101 @@ class _AdminScreenState extends State<AdminScreen> {
         icon: Icons.cloud_off_outlined,
         title: 'Could not load submissions',
         message: 'Check your connection and try again.',
-        action: OutlinedButton(onPressed: _load, child: const Text('Retry')),
-      );
-    }
-    if (_pending.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          children: const [
-            SizedBox(height: 80),
-            EmptyState(
-              icon: Icons.check_circle_outline,
-              title: 'All caught up!',
-              message: 'No pending submissions.',
-            ),
-          ],
+        action: ShadButton.outline(
+          onPressed: _load,
+          child: const Text('Retry'),
         ),
       );
     }
+
     return RefreshIndicator(
       onRefresh: _load,
       child: CenteredBody(
         maxWidth: 720,
-        child: ListView.builder(
-          padding: const EdgeInsets.fromLTRB(
-            Insets.xl,
-            Insets.sm,
-            Insets.xl,
-            Insets.xl,
-          ),
-          itemCount: _pending.length,
-          itemBuilder: (context, i) => _PendingCard(
-            bidet: _pending[i],
-            onApprove: () => _approve(_pending[i]),
-            onReject: () => _reject(_pending[i]),
-          ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  Insets.xl, 0, Insets.xl, Insets.md),
+              child: ShadTabs<int>(
+                value: _tab,
+                onChanged: (v) => setState(() => _tab = v),
+                tabs: [
+                  ShadTab(value: 0, child: Text('Queue (${_pending.length})')),
+                  ShadTab(
+                      value: 1, child: Text('Approved (${_approved.length})')),
+                ],
+              ),
+            ),
+            Expanded(child: _tab == 0 ? _queue() : _approvedList()),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _queue() {
+    if (_pending.isEmpty) {
+      return ListView(
+        children: const [
+          SizedBox(height: 60),
+          EmptyState(
+            icon: Icons.check_circle_outline,
+            title: 'All caught up!',
+            message: 'No pending submissions.',
+          ),
+        ],
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(
+          Insets.xl, 0, Insets.xl, Insets.xl),
+      itemCount: _pending.length,
+      itemBuilder: (context, i) => _PendingCard(
+        bidet: _pending[i],
+        openReports: _reportCounts[_pending[i].id] ?? 0,
+        onApprove: () => _approve(_pending[i]),
+        onReject: () => _reject(_pending[i]),
+      ),
+    );
+  }
+
+  /// Browsing what is already live. Previously the moderator could only see
+  /// the pending queue, so a listing that needed correcting had no tool.
+  Widget _approvedList() {
+    if (_approved.isEmpty) {
+      return ListView(
+        children: const [
+          SizedBox(height: 60),
+          EmptyState(
+            icon: Icons.map_outlined,
+            title: 'Nothing published yet',
+            message: 'Approved bidets show up here.',
+          ),
+        ],
+      );
+    }
+
+    // Anything with an open report first — that is what needs attention.
+    final sorted = [..._approved]..sort((a, b) {
+        final ra = _reportCounts[a.id] ?? 0;
+        final rb = _reportCounts[b.id] ?? 0;
+        if (ra != rb) return rb.compareTo(ra);
+        return b.createdAt.compareTo(a.createdAt);
+      });
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(
+          Insets.xl, 0, Insets.xl, Insets.xl),
+      itemCount: sorted.length,
+      itemBuilder: (context, i) => _ApprovedRow(
+        bidet: sorted[i],
+        openReports: _reportCounts[sorted[i].id] ?? 0,
+        onOpen: () => context.push(
+          Routes.bidet(sorted[i].id),
+          extra: BidetDetailArgs(bidet: sorted[i], distance: ''),
+        ),
+        onUnpublish: () => _reject(sorted[i]),
       ),
     );
   }
@@ -359,9 +411,11 @@ class _PendingCard extends StatelessWidget {
     required this.bidet,
     required this.onApprove,
     required this.onReject,
+    this.openReports = 0,
   });
 
   final Bidet bidet;
+  final int openReports;
   final VoidCallback onApprove;
   final VoidCallback onReject;
 
@@ -436,29 +490,18 @@ class _PendingCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
+                child: ShadButton.outline(
                   onPressed: onReject,
-                  icon: Icon(Icons.close, size: 15, color: error),
-                  label: Text('Reject', style: TextStyle(color: error)),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: error.withValues(alpha: 0.5)),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
+                  leading: Icon(Icons.close, size: 15, color: error),
+                  child: Text('Reject', style: TextStyle(color: error)),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: ElevatedButton.icon(
+                child: ShadButton(
                   onPressed: onApprove,
-                  icon: const Icon(Icons.check, size: 15),
-                  label: const Text('Approve'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    textStyle: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  leading: const Icon(Icons.check, size: 15),
+                  child: const Text('Approve'),
                 ),
               ),
             ],
@@ -560,6 +603,168 @@ class _ExportOption extends StatelessWidget {
               ),
             ),
             Icon(Icons.chevron_right, color: p.mutedForeground),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Asks for a rejection reason. Returning a string (rather than a bool) is
+/// what lets the contributor find out why.
+class _RejectDialog extends StatefulWidget {
+  const _RejectDialog({required this.placeName});
+
+  final String placeName;
+
+  @override
+  State<_RejectDialog> createState() => _RejectDialogState();
+}
+
+class _RejectDialogState extends State<_RejectDialog> {
+  final _reason = TextEditingController();
+
+  static const _presets = [
+    'Already listed',
+    'Not enough detail to find it',
+    'Could not verify it exists',
+    'Not a public bidet',
+  ];
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ShadDialog.alert(
+      title: const Text('Reject submission'),
+      description: Text(
+        '"${widget.placeName}" stays on record as rejected, and the person '
+        'who submitted it will see why.',
+      ),
+      actions: [
+        ShadButton.outline(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ShadButton.destructive(
+          onPressed: _reason.text.trim().isEmpty
+              ? null
+              : () => Navigator.pop(context, _reason.text.trim()),
+          child: const Text('Reject'),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Insets.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Wrap(
+              spacing: Insets.sm,
+              runSpacing: Insets.sm,
+              children: [
+                for (final p in _presets)
+                  ShadButton.outline(
+                    size: ShadButtonSize.sm,
+                    onPressed: () => setState(() => _reason.text = p),
+                    child: Text(p),
+                  ),
+              ],
+            ),
+            const SizedBox(height: Insets.md),
+            ShadInput(
+              controller: _reason,
+              placeholder: const Text('Reason'),
+              onChanged: (_) => setState(() {}),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A published listing in the moderator's browse tab. Open reports float to
+/// the top of the list and are called out here, because that is the signal
+/// that something needs correcting.
+class _ApprovedRow extends StatelessWidget {
+  const _ApprovedRow({
+    required this.bidet,
+    required this.openReports,
+    required this.onOpen,
+    required this.onUnpublish,
+  });
+
+  final Bidet bidet;
+  final int openReports;
+  final VoidCallback onOpen;
+  final VoidCallback onUnpublish;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final cs = context.shad;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Insets.sm),
+      child: ShadCard(
+        width: double.infinity,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          bidet.placeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.small,
+                        ),
+                      ),
+                      if (openReports > 0) ...[
+                        const SizedBox(width: Insets.sm),
+                        ShadBadge.destructive(
+                          child: Text(
+                            openReports == 1
+                                ? '1 report'
+                                : '$openReports reports',
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    bidet.floor,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.muted,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: Insets.sm),
+            ShadButton.ghost(
+              size: ShadButtonSize.sm,
+              onPressed: onOpen,
+              child: const Text('Open'),
+            ),
+            ShadButton.ghost(
+              size: ShadButtonSize.sm,
+              onPressed: onUnpublish,
+              child: Text(
+                'Unpublish',
+                style: TextStyle(color: cs.destructive),
+              ),
+            ),
           ],
         ),
       ),

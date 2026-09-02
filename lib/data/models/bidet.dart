@@ -16,9 +16,28 @@ enum BidetType {
       );
 }
 
+/// Who can actually walk in. "3rd floor, near the cinemas" does not answer
+/// this, and it is usually the deciding factor before walking there.
+enum AccessType {
+  public('public', 'Open to anyone'),
+  customer('customer', 'Customers only'),
+  staff('staff', 'Ask staff first');
+
+  const AccessType(this.id, this.label);
+
+  final String id;
+  final String label;
+
+  static AccessType fromId(String? id) => AccessType.values.firstWhere(
+        (a) => a.id == id,
+        orElse: () => AccessType.public,
+      );
+}
+
 enum BidetStatus {
   pending('pending'),
-  approved('approved');
+  approved('approved'),
+  rejected('rejected');
 
   const BidetStatus(this.id);
 
@@ -53,6 +72,17 @@ class Bidet {
   final double accessibilityRating;
   final double privacyRating;
 
+  final AccessType accessType;
+  final String? hoursNote;
+  final String? feeNote;
+
+  /// Set when a moderator rejects the submission, so the contributor learns
+  /// why instead of watching the row disappear.
+  final String? rejectionReason;
+
+  /// Username of whoever submitted it, embedded from `profiles`.
+  final String? submittedByUsername;
+
   const Bidet({
     required this.id,
     required this.placeName,
@@ -69,6 +99,11 @@ class Bidet {
     this.pressureRating = 0,
     this.accessibilityRating = 0,
     this.privacyRating = 0,
+    this.accessType = AccessType.public,
+    this.hoursNote,
+    this.feeNote,
+    this.rejectionReason,
+    this.submittedByUsername,
   });
 
   String get typeLabel => type.label;
@@ -93,6 +128,16 @@ class Bidet {
       pressureRating: toDouble(data['pressure_rating']),
       accessibilityRating: toDouble(data['accessibility_rating']),
       privacyRating: toDouble(data['privacy_rating']),
+      accessType: AccessType.fromId(data['access_type'] as String?),
+      hoursNote: data['hours_note'] as String?,
+      feeNote: data['fee_note'] as String?,
+      rejectionReason: data['rejection_reason'] as String?,
+      // PostgREST embeds the related profile as a nested object when the
+      // query asks for it; absent on plain selects.
+      submittedByUsername: switch (data['profiles']) {
+        {'username': final String u} => u,
+        _ => null,
+      },
     );
   }
 
@@ -105,6 +150,9 @@ class Bidet {
         'latitude': latitude,
         'longitude': longitude,
         'status': status.id,
+        'access_type': accessType.id,
+        if (hoursNote != null && hoursNote!.isNotEmpty) 'hours_note': hoursNote,
+        if (feeNote != null && feeNote!.isNotEmpty) 'fee_note': feeNote,
         if (imageUrl != null) 'image_url': imageUrl,
         // Column is `submitted_by`, not `user_id` — it predates this refactor.
         if (userId != null) 'submitted_by': userId,
@@ -126,6 +174,11 @@ class Bidet {
     double? pressureRating,
     double? accessibilityRating,
     double? privacyRating,
+    AccessType? accessType,
+    String? hoursNote,
+    String? feeNote,
+    String? rejectionReason,
+    String? submittedByUsername,
   }) {
     return Bidet(
       id: id ?? this.id,
@@ -143,6 +196,11 @@ class Bidet {
       pressureRating: pressureRating ?? this.pressureRating,
       accessibilityRating: accessibilityRating ?? this.accessibilityRating,
       privacyRating: privacyRating ?? this.privacyRating,
+      accessType: accessType ?? this.accessType,
+      hoursNote: hoursNote ?? this.hoursNote,
+      feeNote: feeNote ?? this.feeNote,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
+      submittedByUsername: submittedByUsername ?? this.submittedByUsername,
     );
   }
 
@@ -164,7 +222,12 @@ class Bidet {
           other.cleanlinessRating == cleanlinessRating &&
           other.pressureRating == pressureRating &&
           other.accessibilityRating == accessibilityRating &&
-          other.privacyRating == privacyRating;
+          other.privacyRating == privacyRating &&
+          other.accessType == accessType &&
+          other.hoursNote == hoursNote &&
+          other.feeNote == feeNote &&
+          other.rejectionReason == rejectionReason &&
+          other.submittedByUsername == submittedByUsername;
 
   @override
   int get hashCode => Object.hash(
@@ -183,6 +246,11 @@ class Bidet {
         pressureRating,
         accessibilityRating,
         privacyRating,
+        accessType,
+        hoursNote,
+        feeNote,
+        rejectionReason,
+        submittedByUsername,
       );
 }
 
@@ -206,4 +274,64 @@ class BidetRating {
 
   bool get isComplete =>
       cleanliness > 0 && pressure > 0 && accessibility > 0 && privacy > 0;
+
+  /// Reads a row back out of `bidet_ratings`, so the rating sheet can open
+  /// pre-filled with what this user said last time instead of blank.
+  factory BidetRating.fromMap(Map<String, dynamic> data) {
+    double v(String k) => (data[k] as num?)?.toDouble() ?? 0;
+    return BidetRating(
+      cleanliness: v('cleanliness'),
+      pressure: v('pressure'),
+      accessibility: v('accessibility'),
+      privacy: v('privacy'),
+    );
+  }
+}
+
+/// A problem someone reported with a listing. The app catalogues physical
+/// things that close and break, so this is how the data stays true.
+enum ReportKind {
+  gone('gone', 'It is gone', 'The bidet or the whole restroom no longer exists'),
+  broken('broken', 'It is broken', 'There, but not usable right now'),
+  inaccurate(
+    'inaccurate',
+    'Details are wrong',
+    'Wrong floor, wrong type, wrong place name',
+  ),
+  duplicate('duplicate', 'Already listed', 'The same bidet appears twice'),
+  other('other', 'Something else', 'Tell us what is off');
+
+  const ReportKind(this.id, this.label, this.hint);
+
+  final String id;
+  final String label;
+  final String hint;
+
+  static ReportKind fromId(String? id) => ReportKind.values.firstWhere(
+        (r) => r.id == id,
+        orElse: () => ReportKind.other,
+      );
+}
+
+/// A candidate duplicate found near a proposed location.
+@immutable
+class NearbyBidet {
+  final String id;
+  final String placeName;
+  final String floor;
+  final double distanceMeters;
+
+  const NearbyBidet({
+    required this.id,
+    required this.placeName,
+    required this.floor,
+    required this.distanceMeters,
+  });
+
+  factory NearbyBidet.fromMap(Map<String, dynamic> data) => NearbyBidet(
+        id: data['id']?.toString() ?? '',
+        placeName: data['place_name'] as String? ?? '',
+        floor: data['floor'] as String? ?? '',
+        distanceMeters: (data['distance_m'] as num?)?.toDouble() ?? 0,
+      );
 }

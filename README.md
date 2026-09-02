@@ -42,6 +42,9 @@ editor. Both are idempotent.
   `submit_bidet_rating()` function, the `bidet-images` bucket, and all
   row-level-security policies. Adapts to an existing `profiles` table rather
   than assuming it can create one.
+- `0003_reports_access_and_moderation.sql` — access details, a rejected state
+  with a reason, the reports table, contributor attribution, and the proximity
+  lookup used to catch duplicates.
 - `0002_timestamptz.sql` — makes `created_at` timezone-aware, so dates no
   longer read eight hours early in Cebu.
 

@@ -1,15 +1,21 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:shadcn_ui/shadcn_ui.dart';
-import 'package:go_router/go_router.dart';
-import '../../core/app_scope.dart';
-import '../../core/theme.dart';
-import '../../core/router.dart';
-import '../../data/models/bidet.dart';
 
-/// shadcn "dashboard-01" adapted to Flutter: section stat cards, a criteria
-/// breakdown, a 6-month bar chart, and a tabbed data table — fed by the live
-/// bidet data. Shown to logged-in users as their home.
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
+
+import '../../core/app_scope.dart';
+import '../../core/router.dart';
+import '../../core/theme.dart';
+import '../../data/models/bidet.dart';
+import '../bidet/bidet_detail_screen.dart';
+
+/// The shadcn `dashboard-01` block, in Flutter.
+///
+/// Same anatomy as the web original: a header with the account, a row of
+/// section cards, a chart, and a tabbed data table — all built from shadcn
+/// primitives (ShadCard, ShadBadge, ShadTabs, ShadTable, ShadSeparator,
+/// ShadAvatar) rather than hand-rolled containers.
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -17,10 +23,18 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
+/// Fixed row height, so the table's total height can be computed instead of
+/// measured — ShadTable needs a bounded box.
+const double _kRowHeight = 46;
+
 class _DashboardScreenState extends State<DashboardScreen> {
   StreamSubscription<List<Bidet>>? _sub;
 
   List<Bidet> _bidets = [];
+
+  /// Everything this user submitted, any status. Without it a contributor
+  /// submits something and it vanishes into moderation with no feedback.
+  List<Bidet> _mine = const [];
   bool _loaded = false;
   int _tab = 0; // 0 = Recent, 1 = Top rated, 2 = All
 
@@ -41,7 +55,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }, onError: (_) {
         if (mounted) setState(() => _loaded = true);
       });
+      _loadMine();
     });
+  }
+
+  Future<void> _loadMine() async {
+    final userId = context.session.user?.id;
+    if (userId == null) return;
+    try {
+      final mine = await context.bidets.fetchMine(userId);
+      if (mounted) setState(() => _mine = mine);
+    } catch (_) {
+      // The rest of the dashboard is still useful without this.
+    }
   }
 
   @override
@@ -50,7 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  // ---- derived metrics -------------------------------------------------
+  // ---- derived metrics ---------------------------------------------------
 
   double get _avgRating {
     final rated = _bidets.where((b) => b.ratingCount > 0).toList();
@@ -59,6 +85,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   int get _topRated => _bidets.where((b) => b.rating >= 4).length;
+
+  int get _unrated => _bidets.where((b) => b.ratingCount == 0).length;
 
   int _addedIn(DateTime month) => _bidets
       .where((b) =>
@@ -92,195 +120,200 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return list.take(8).toList();
   }
 
-  // ---- build -----------------------------------------------------------
+  static String _monthAbbr(int m) => const [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ][(m - 1) % 12];
+
+  static String _fmtDate(DateTime d) => '${d.day} ${_monthAbbr(d.month)}';
+
+  // ---- build -------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final theme = ShadTheme.of(context);
-    final cs = theme.colorScheme;
+    final cs = context.shad;
     final now = DateTime.now();
     final thisMonth = _addedIn(DateTime(now.year, now.month));
     final lastMonth = _addedIn(DateTime(now.year, now.month - 1));
     final monthDelta = thisMonth - lastMonth;
+    final wide = !context.isCompact;
 
     return Scaffold(
-      backgroundColor: cs.muted,
+      backgroundColor: cs.background,
       body: SafeArea(
         child: !_loaded
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _header(theme),
-                  const SizedBox(height: 16),
-                  // Section cards (2x2)
-                  Row(children: [
-                    Expanded(
-                        child: _statCard(theme, 'Total bidets', '${_bidets.length}',
-                            Icons.wc_outlined)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: _statCard(theme, 'Avg rating',
-                            _avgRating.toStringAsFixed(1), Icons.star_outline,
-                            badge: '$_topRated top')),
-                  ]),
-                  const SizedBox(height: 12),
-                  Row(children: [
-                    Expanded(
-                        child: _statCard(theme, 'Added this month', '$thisMonth',
-                            Icons.trending_up,
-                            badge: monthDelta >= 0 ? '+$monthDelta' : '$monthDelta',
-                            badgePositive: monthDelta >= 0)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: _statCard(theme, 'Rated 4.0 or better', '$_topRated',
-                            Icons.verified_outlined)),
-                  ]),
-                  const SizedBox(height: 16),
-                  _criteriaCard(theme),
-                  const SizedBox(height: 16),
-                  _chartCard(theme),
-                  const SizedBox(height: 16),
-                  _tableCard(theme),
-                  const SizedBox(height: 16),
-                  _ctaRow(),
-                  const SizedBox(height: 8),
-                ],
+            : Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: ListView(
+                    padding: const EdgeInsets.all(Insets.lg),
+                    children: [
+                      _header(context),
+                      const SizedBox(height: Insets.lg),
+                      _sectionCards(context, thisMonth, monthDelta, wide),
+                      const SizedBox(height: Insets.md),
+                      _chartCard(context),
+                      const SizedBox(height: Insets.md),
+                      _criteriaCard(context),
+                      const SizedBox(height: Insets.md),
+                      _tableCard(context),
+                      const SizedBox(height: Insets.md),
+                      if (_mine.isNotEmpty) ...[
+                        _mySubmissions(context),
+                        const SizedBox(height: Insets.md),
+                      ],
+                      _ctaRow(context),
+                      const SizedBox(height: Insets.sm),
+                    ],
+                  ),
+                ),
               ),
       ),
     );
   }
 
-  Widget _header(ShadThemeData theme) {
-    final name = context.session.user?.displayName ?? 'there';
+  Widget _header(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final session = context.session;
+    final name = session.user?.displayName ?? 'there';
+    final initials = name.isEmpty ? '?' : name[0].toUpperCase();
+
     return Row(
       children: [
+        ShadAvatar(
+          null,
+          placeholder: Text(initials, style: AppType.body(size: 14)),
+          size: const Size.square(38),
+        ),
+        const SizedBox(width: Insets.md),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Dashboard',
-                  style: theme.textTheme.h3.copyWith(height: 1.1)),
-              const SizedBox(height: 2),
+              Text('Dashboard', style: theme.textTheme.h3),
+              const SizedBox(height: 1),
               Text('Welcome back, $name', style: theme.textTheme.muted),
             ],
           ),
         ),
-        ShadButton.ghost(
-          onPressed: () async {
-            // The router's redirect drops us off this guarded route as soon as
-            // the session clears, so no manual navigation is needed.
-            await context.session.signOut();
-          },
+        ShadButton.outline(
+          size: ShadButtonSize.sm,
+          // The router redirect drops us off this guarded route as soon as the
+          // session clears, so no manual navigation is needed.
+          onPressed: () async => context.session.signOut(),
           child: const Text('Sign out'),
         ),
       ],
     );
   }
 
-  Widget _statCard(ShadThemeData theme, String label, String value, IconData icon,
-      {String? badge, bool badgePositive = true}) {
-    final cs = theme.colorScheme;
-    return ShadCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 18, color: cs.mutedForeground),
-              const Spacer(),
-              // Only render a badge when there is a real figure behind it.
-              // 'Cebu' and '≥ 4.0★' were static captions styled as metrics.
-              if (badge != null)
-                badgePositive
-                    ? ShadBadge.secondary(child: Text(badge))
-                    : ShadBadge.destructive(child: Text(badge)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(value, style: AppType.figure(size: 28, color: cs.foreground)),
-          const SizedBox(height: 2),
-          Text(label, style: theme.textTheme.muted),
-        ],
+  /// The "section cards" row from dashboard-01. Every badge here is computed
+  /// from real data; the block's placeholder trend chips are not carried over.
+  Widget _sectionCards(
+    BuildContext context,
+    int thisMonth,
+    int monthDelta,
+    bool wide,
+  ) {
+    final cards = [
+      _StatCard(
+        label: 'Bidets mapped',
+        value: '${_bidets.length}',
+        icon: Icons.place_outlined,
+        footnote: '$_unrated still unrated',
       ),
-    );
-  }
+      _StatCard(
+        label: 'Average score',
+        value: _avgRating == 0 ? '—' : _avgRating.toStringAsFixed(1),
+        icon: Icons.star_outline_rounded,
+        suffix: _avgRating == 0 ? null : '/5',
+        footnote: '$_topRated rated 4.0 or better',
+      ),
+      _StatCard(
+        label: 'Added this month',
+        value: '$thisMonth',
+        icon: Icons.trending_up,
+        badge: monthDelta == 0
+            ? null
+            : (monthDelta > 0 ? '+$monthDelta' : '$monthDelta'),
+        badgeUp: monthDelta > 0,
+        footnote: 'vs ${thisMonth - monthDelta} last month',
+      ),
+    ];
 
-  Widget _criteriaCard(ShadThemeData theme) {
-    Widget bar(String label, double value) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(child: Text(label, style: theme.textTheme.small)),
-                Text('${value.toStringAsFixed(1)} / 5',
-                    style: theme.textTheme.muted),
-              ],
-            ),
-            const SizedBox(height: 6),
-            ShadProgress(value: (value / 5).clamp(0, 1), minHeight: 8),
+    if (wide) {
+      return Row(
+        children: [
+          for (var i = 0; i < cards.length; i++) ...[
+            if (i > 0) const SizedBox(width: Insets.md),
+            Expanded(child: cards[i]),
           ],
-        ),
+        ],
       );
     }
-
-    return ShadCard(
-      title: const Text('Ratings by criteria'),
-      description: const Text('Community averages across all rated bidets'),
-      child: Padding(
-        padding: const EdgeInsets.only(top: 12),
-        child: Column(
-          children: [
-            bar('Cleanliness', _criteriaAvg((b) => b.cleanlinessRating)),
-            bar('Water pressure', _criteriaAvg((b) => b.pressureRating)),
-            bar('Accessibility', _criteriaAvg((b) => b.accessibilityRating)),
-            bar('Privacy', _criteriaAvg((b) => b.privacyRating)),
-          ],
-        ),
-      ),
+    return Column(
+      children: [
+        for (var i = 0; i < cards.length; i++) ...[
+          if (i > 0) const SizedBox(height: Insets.md),
+          cards[i],
+        ],
+      ],
     );
   }
 
-  Widget _chartCard(ShadThemeData theme) {
-    final cs = theme.colorScheme;
+  /// dashboard-01's chart area. Bars rather than an area chart, because the
+  /// series is six discrete monthly counts, not a continuous signal.
+  Widget _chartCard(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final cs = context.shad;
     final months = _last6Months;
-    final maxCount =
-        months.map((m) => m.count).fold(0, (a, b) => a > b ? a : b);
+    final peak = months.map((m) => m.count).fold(0, (a, b) => a > b ? a : b);
 
     return ShadCard(
-      title: const Text('Bidets added'),
-      description: const Text('Last 6 months'),
+      width: double.infinity,
+      title: const Text('Added per month'),
+      description: const Text('New bidets accepted over the last six months.'),
       child: Padding(
-        padding: const EdgeInsets.only(top: 16),
+        padding: const EdgeInsets.only(top: Insets.lg),
         child: SizedBox(
-          height: 120,
+          height: 150,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               for (final m in months)
                 Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text('${m.count}', style: theme.textTheme.muted),
-                      const SizedBox(height: 4),
-                      Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 5),
-                        height: maxCount == 0
-                            ? 4
-                            : 8 + (84 * m.count / maxCount),
-                        decoration: BoxDecoration(
-                          color: cs.primary,
-                          borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${m.count}',
+                          style: AppType.figure(
+                            size: 12,
+                            color: cs.mutedForeground,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(m.label, style: theme.textTheme.muted),
-                    ],
+                        const SizedBox(height: 5),
+                        // Zero months still get a hairline, so the baseline
+                        // reads as a row rather than a gap.
+                        Container(
+                          height: peak == 0
+                              ? 2
+                              : (m.count / peak * 96).clamp(2, 96).toDouble(),
+                          decoration: BoxDecoration(
+                            color: m == months.last
+                                ? cs.primary
+                                : cs.primary.withValues(alpha: 0.28),
+                            borderRadius: BorderRadius.circular(Radii.xs),
+                          ),
+                        ),
+                        const SizedBox(height: Insets.sm),
+                        Text(m.label, style: theme.textTheme.muted),
+                      ],
+                    ),
                   ),
                 ),
             ],
@@ -290,135 +323,402 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _tableCard(ShadThemeData theme) {
-    final cs = theme.colorScheme;
-    const tabs = ['Recent', 'Top rated', 'All'];
-    final rows = _tableData;
+  Widget _criteriaCard(BuildContext context) {
+    final rated = _bidets.where((b) => b.ratingCount > 0).length;
 
     return ShadCard(
-      title: const Text('Bidets'),
+      width: double.infinity,
+      title: const Text('How Cebu scores it'),
+      description: Text(
+        rated == 0
+            ? 'No ratings yet.'
+            : 'Averaged across $rated rated ${rated == 1 ? 'bidet' : 'bidets'}.',
+      ),
       child: Padding(
-        padding: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.only(top: Insets.lg),
         child: Column(
           children: [
-            // Segmented control (stands in for shadcn Tabs)
-            Row(
-              children: [
-                for (var i = 0; i < tabs.length; i++)
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(right: i < tabs.length - 1 ? 6 : 0),
-                      child: _tab == i
-                          ? ShadButton(
-                              size: ShadButtonSize.sm,
-                              onPressed: () => setState(() => _tab = i),
-                              child: Text(tabs[i]),
-                            )
-                          : ShadButton.ghost(
-                              size: ShadButtonSize.sm,
-                              onPressed: () => setState(() => _tab = i),
-                              child: Text(tabs[i]),
-                            ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // Header
-            Row(
-              children: [
-                Expanded(
-                    flex: 5,
-                    child: Text('Place',
-                        style: theme.textTheme.muted
-                            .copyWith(fontWeight: FontWeight.w600))),
-                Expanded(
-                    flex: 3,
-                    child: Text('Type',
-                        style: theme.textTheme.muted
-                            .copyWith(fontWeight: FontWeight.w600))),
-                Expanded(
-                    flex: 2,
-                    child: Text('★',
-                        style: theme.textTheme.muted
-                            .copyWith(fontWeight: FontWeight.w600))),
-                Expanded(
-                    flex: 3,
-                    child: Text('Added',
-                        textAlign: TextAlign.end,
-                        style: theme.textTheme.muted
-                            .copyWith(fontWeight: FontWeight.w600))),
-              ],
-            ),
-            const SizedBox(height: 4),
-            if (rows.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 20),
-                child: Text('No bidets yet.', style: theme.textTheme.muted),
-              )
-            else
-              for (final b in rows) ...[
-                Divider(height: 18, color: cs.border),
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 5,
-                      child: Text(b.placeName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.small),
-                    ),
-                    Expanded(
-                      flex: 3,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: ShadBadge.outline(child: Text(b.typeLabel)),
-                      ),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: Text(b.rating.toStringAsFixed(1),
-                          style: theme.textTheme.small),
-                    ),
-                    Expanded(
-                      flex: 3,
-                      child: Text(_fmtDate(b.createdAt),
-                          textAlign: TextAlign.end,
-                          style: theme.textTheme.muted),
-                    ),
-                  ],
-                ),
-              ],
+            _CriteriaBar('Cleanliness', _criteriaAvg((b) => b.cleanlinessRating)),
+            _CriteriaBar('Water pressure', _criteriaAvg((b) => b.pressureRating)),
+            _CriteriaBar(
+                'Accessibility', _criteriaAvg((b) => b.accessibilityRating)),
+            _CriteriaBar('Privacy', _criteriaAvg((b) => b.privacyRating)),
           ],
         ),
       ),
     );
   }
 
-  Widget _ctaRow() {
-    return Row(
-      children: [
-        Expanded(
-          child: ShadButton(
-            onPressed: () => context.push(Routes.map),
-            child: const Text('Open the map'),
-          ),
+  /// dashboard-01's tabbed data table, using ShadTabs + ShadTable.
+  Widget _tableCard(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final rows = _tableData;
+
+    return ShadCard(
+      width: double.infinity,
+      title: const Text('Browse'),
+      description: Text('Showing ${rows.length} of ${_bidets.length}.'),
+      child: Padding(
+        padding: const EdgeInsets.only(top: Insets.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ShadTabs<int>(
+              value: _tab,
+              onChanged: (v) => setState(() => _tab = v),
+              tabs: [
+                for (final (i, label) in const [
+                  (0, 'Recent'),
+                  (1, 'Top rated'),
+                  (2, 'A–Z'),
+                ])
+                  ShadTab(value: i, child: Text(label)),
+              ],
+            ),
+            const SizedBox(height: Insets.md),
+            if (rows.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: Insets.xxl),
+                child: Center(
+                  child: Text(
+                    'Nothing mapped yet.',
+                    style: theme.textTheme.muted,
+                  ),
+                ),
+              )
+            else
+              // ShadTable is a two-dimensional scrollable, so it needs a
+              // bounded height — inside the page's ListView it would otherwise
+              // be handed unbounded space and fail layout. Rows are capped at
+              // eight, so the height is deterministic.
+              SizedBox(
+                height: _kRowHeight * (rows.length + 1) + 2,
+                child: ShadTable.list(
+                  rowSpanExtent: (_) =>
+                      const FixedTableSpanExtent(_kRowHeight),
+                  header: const [
+                    ShadTableCell.header(child: Text('Place')),
+                    ShadTableCell.header(child: Text('Type')),
+                    ShadTableCell.header(
+                        alignment: Alignment.centerRight, child: Text('Score')),
+                    ShadTableCell.header(
+                        alignment: Alignment.centerRight, child: Text('Added')),
+                  ],
+                  columnSpanExtent: (index) {
+                    if (index == 0) return const FixedTableSpanExtent(180);
+                    if (index == 1) return const FixedTableSpanExtent(132);
+                    return const FixedTableSpanExtent(76);
+                  },
+                  children: [
+                  for (final b in rows)
+                    [
+                      ShadTableCell(
+                        child: Text(
+                          b.placeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppType.body(
+                            size: 13.5,
+                            weight: FontWeight.w600,
+                            color: context.shad.foreground,
+                          ),
+                        ),
+                      ),
+                      ShadTableCell(child: _TypeBadge(b.type)),
+                      ShadTableCell(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          b.ratingCount == 0
+                              ? '—'
+                              : b.rating.toStringAsFixed(1),
+                          style: AppType.figure(
+                            size: 13,
+                            color: context.shad.foreground,
+                          ),
+                        ),
+                      ),
+                      ShadTableCell(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          _fmtDate(b.createdAt),
+                          style: theme.textTheme.muted,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            if (rows.isNotEmpty) ...[
+              const SizedBox(height: Insets.md),
+              const ShadSeparator.horizontal(margin: EdgeInsets.zero),
+              const SizedBox(height: Insets.md),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ShadButton.link(
+                  padding: EdgeInsets.zero,
+                  onPressed: () => context.push(
+                    Routes.bidet(rows.first.id),
+                    extra: BidetDetailArgs(bidet: rows.first, distance: ''),
+                  ),
+                  child: const Text('Open the most recent'),
+                ),
+              ),
+            ],
+          ],
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ShadButton.outline(
-            onPressed: () => context.push(Routes.addBidet),
-            child: const Text('Add a bidet'),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  String _fmtDate(DateTime d) => '${_monthAbbr(d.month)} ${d.day}';
+  /// Your own submissions, with their real status. A pending row now says so,
+  /// and a rejected one carries the moderator's reason.
+  Widget _mySubmissions(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final cs = context.shad;
+    final pending = _mine.where((b) => b.status == BidetStatus.pending).length;
 
-  String _monthAbbr(int m) => const [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ][(m - 1) % 12];
+    return ShadCard(
+      width: double.infinity,
+      title: const Text('Your submissions'),
+      description: Text(
+        pending == 0
+            ? '${_mine.length} submitted.'
+            : '${_mine.length} submitted · $pending awaiting review.',
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(top: Insets.md),
+        child: Column(
+          children: [
+            for (var i = 0; i < _mine.length && i < 6; i++) ...[
+              if (i > 0) Divider(height: 20, color: cs.border),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _mine[i].placeName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.small,
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          _mine[i].floor,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.muted,
+                        ),
+                        if (_mine[i].status == BidetStatus.rejected &&
+                            (_mine[i].rejectionReason?.isNotEmpty ?? false)) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            _mine[i].rejectionReason!,
+                            style: AppType.body(
+                              size: 12,
+                              color: cs.destructive,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: Insets.sm),
+                  _StatusBadge(_mine[i].status),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ctaRow(BuildContext context) {
+    final open = ShadButton(
+      onPressed: () => context.push(Routes.map),
+      leading: const Icon(Icons.map_outlined, size: 16),
+      child: const Text('Open the map'),
+    );
+    final add = ShadButton.outline(
+      onPressed: () => context.push(Routes.addBidet),
+      leading: const Icon(Icons.add, size: 16),
+      child: const Text('Add a bidet'),
+    );
+
+    // Side by side there is not always room for an icon and a label; stacking
+    // on narrow screens avoids squeezing the button's own content row.
+    if (context.isCompact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [open, const SizedBox(height: Insets.sm), add],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: open),
+        const SizedBox(width: Insets.md),
+        Expanded(child: add),
+      ],
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  const _StatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.suffix,
+    this.badge,
+    this.badgeUp = true,
+    this.footnote,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final String? suffix;
+  final String? badge;
+  final bool badgeUp;
+  final String? footnote;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final cs = context.shad;
+
+    return ShadCard(
+      width: double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: cs.mutedForeground),
+              const SizedBox(width: 7),
+              Expanded(child: Text(label, style: theme.textTheme.muted)),
+              if (badge != null)
+                badgeUp
+                    ? ShadBadge.secondary(child: Text(badge!))
+                    : ShadBadge.destructive(child: Text(badge!)),
+            ],
+          ),
+          const SizedBox(height: Insets.md),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(value, style: AppType.figure(size: 28, color: cs.foreground)),
+              if (suffix != null) ...[
+                const SizedBox(width: 3),
+                Text(suffix!, style: theme.textTheme.muted),
+              ],
+            ],
+          ),
+          if (footnote != null) ...[
+            const SizedBox(height: 4),
+            Text(footnote!, style: theme.textTheme.muted),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CriteriaBar extends StatelessWidget {
+  const _CriteriaBar(this.label, this.value);
+
+  final String label;
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final cs = context.shad;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Insets.md),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 116,
+            child: Text(label, style: theme.textTheme.muted),
+          ),
+          Expanded(
+            child: ShadProgress(
+              value: (value / 5).clamp(0.0, 1.0),
+              minHeight: 7,
+            ),
+          ),
+          const SizedBox(width: Insets.md),
+          SizedBox(
+            width: 26,
+            child: Text(
+              value == 0 ? '—' : value.toStringAsFixed(1),
+              textAlign: TextAlign.right,
+              style: AppType.figure(size: 12.5, color: cs.foreground),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TypeBadge extends StatelessWidget {
+  const _TypeBadge(this.type);
+
+  final BidetType type;
+
+  static Color _colorFor(BidetType type) => switch (type) {
+        BidetType.bidetSeat => AppColors.typeSeat,
+        BidetType.tabo => AppColors.typeTabo,
+        BidetType.sprayHose => AppColors.typeSpray,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _colorFor(type);
+    return ShadBadge.outline(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              type.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppType.body(size: 11, color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge(this.status);
+
+  final BidetStatus status;
+
+  @override
+  Widget build(BuildContext context) => switch (status) {
+        BidetStatus.approved => const ShadBadge(child: Text('Live')),
+        BidetStatus.pending =>
+          const ShadBadge.secondary(child: Text('In review')),
+        BidetStatus.rejected =>
+          const ShadBadge.destructive(child: Text('Rejected')),
+      };
 }

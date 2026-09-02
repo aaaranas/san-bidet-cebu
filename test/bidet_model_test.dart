@@ -87,6 +87,93 @@ void main() {
     });
   });
 
+  group('new fields', () {
+    test('parses access, fee and rejection reason', () {
+      final bidet = Bidet.fromMap({
+        'id': 'x',
+        'access_type': 'customer',
+        'hours_note': 'Mall hours',
+        'fee_note': 'PHP 5',
+        'status': 'rejected',
+        'rejection_reason': 'Already listed',
+      });
+
+      expect(bidet.accessType, AccessType.customer);
+      expect(bidet.accessType.label, 'Customers only');
+      expect(bidet.hoursNote, 'Mall hours');
+      expect(bidet.feeNote, 'PHP 5');
+      expect(bidet.status, BidetStatus.rejected);
+      expect(bidet.rejectionReason, 'Already listed');
+    });
+
+    test('falls back to public access on an unknown value', () {
+      expect(
+        Bidet.fromMap({'id': 'x', 'access_type': 'nonsense'}).accessType,
+        AccessType.public,
+      );
+    });
+
+    test('reads the embedded contributor username', () {
+      final bidet = Bidet.fromMap({
+        'id': 'x',
+        'profiles': {'username': 'bidet_hunter'},
+      });
+      expect(bidet.submittedByUsername, 'bidet_hunter');
+    });
+
+    test('tolerates a missing profile embed', () {
+      expect(Bidet.fromMap({'id': 'x'}).submittedByUsername, isNull);
+      expect(
+        Bidet.fromMap({'id': 'x', 'profiles': null}).submittedByUsername,
+        isNull,
+      );
+    });
+
+    test('toInsert carries access details but omits empty optional notes', () {
+      final map = makeBidet()
+          .copyWith(accessType: AccessType.staff, hoursNote: '', feeNote: 'PHP 5')
+          .toInsert(userId: 'u1');
+
+      expect(map['access_type'], 'staff');
+      expect(map.containsKey('hours_note'), isFalse);
+      expect(map['fee_note'], 'PHP 5');
+    });
+  });
+
+  group('BidetRating round trip', () {
+    test('reads a stored rating back', () {
+      final r = BidetRating.fromMap({
+        'cleanliness': 5,
+        'pressure': 4,
+        'accessibility': 3,
+        'privacy': 4.0,
+      });
+      expect(r.cleanliness, 5);
+      expect(r.overall, 4.0);
+      expect(r.isComplete, isTrue);
+    });
+  });
+
+  group('NearbyBidet', () {
+    test('parses the proximity RPC result', () {
+      final n = NearbyBidet.fromMap({
+        'id': 'abc',
+        'place_name': 'SM City Cebu',
+        'floor': '3F',
+        'distance_m': 18.4,
+      });
+      expect(n.placeName, 'SM City Cebu');
+      expect(n.distanceMeters, closeTo(18.4, 0.01));
+    });
+  });
+
+  group('ReportKind', () {
+    test('maps ids and falls back to other', () {
+      expect(ReportKind.fromId('gone'), ReportKind.gone);
+      expect(ReportKind.fromId('nope'), ReportKind.other);
+    });
+  });
+
   group('BidetRating', () {
     test('overall is the mean of the four criteria', () {
       const rating = BidetRating(

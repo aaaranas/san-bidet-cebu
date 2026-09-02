@@ -117,6 +117,69 @@ class FakeBidetRepository implements BidetRepository {
   @override
   Future<void> setImageUrl(String id, String imageUrl) async {}
 
+  /// Ratings this fake user has left, keyed by bidet id.
+  final Map<String, BidetRating> myRatings = {};
+  final List<({String bidetId, ReportKind kind, String? note})> reports = [];
+  List<NearbyBidet> nearby = const [];
+  String? lastRejectReason;
+
+  @override
+  Future<List<Bidet>> fetchMine(String userId) async {
+    _maybeFail();
+    return _bidets.toList();
+  }
+
+  @override
+  Future<List<Bidet>> fetchApproved() async {
+    _maybeFail();
+    return _bidets.where((b) => b.status == BidetStatus.approved).toList();
+  }
+
+  @override
+  Future<BidetRating?> fetchMyRating(String bidetId) async {
+    _maybeFail();
+    return myRatings[bidetId];
+  }
+
+  @override
+  Future<Set<String>> fetchRatedIds() async {
+    _maybeFail();
+    return myRatings.keys.toSet();
+  }
+
+  @override
+  Future<List<NearbyBidet>> findNearby(
+    double latitude,
+    double longitude, {
+    double radiusMeters = 120,
+  }) async {
+    _maybeFail();
+    return nearby;
+  }
+
+  @override
+  Future<void> report(String bidetId, ReportKind kind, String? note) async {
+    _maybeFail();
+    reports.add((bidetId: bidetId, kind: kind, note: note));
+  }
+
+  @override
+  Future<Map<String, int>> fetchOpenReportCounts() async {
+    _maybeFail();
+    final counts = <String, int>{};
+    for (final r in reports) {
+      counts[r.bidetId] = (counts[r.bidetId] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  @override
+  Future<void> reject(String id, String reason) async {
+    _maybeFail();
+    lastRejectReason = reason;
+    deleteCalls++;
+  }
+
   @override
   Future<void> approve(String id) async {
     _maybeFail();
@@ -133,6 +196,7 @@ class FakeBidetRepository implements BidetRepository {
   Future<void> rate(String bidetId, BidetRating rating) async {
     _maybeFail();
     rateCalls++;
+    myRatings[bidetId] = rating;
   }
 }
 

@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
@@ -41,6 +42,13 @@ class _MapScreenState extends State<MapScreen> {
   List<Bidet> _bidets = [];
   String? _selectedBidetId;
   String _searchQuery = '';
+
+  /// Type filter. The landing page teaches the colour encoding, so the map
+  /// should let you act on it.
+  final Set<BidetType> _typeFilter = {};
+
+  /// Bidets this user has already rated, so the list can say so.
+  Set<String> _ratedIds = {};
 
   // Map style switching --------------------------------------------------
   static const _styles = <_MapStyle>[
@@ -102,6 +110,7 @@ class _MapScreenState extends State<MapScreen> {
       if (!mounted) return;
       _fetchLocation();
       _subscribe();
+      _loadRated();
     });
   }
 
@@ -112,6 +121,16 @@ class _MapScreenState extends State<MapScreen> {
     _bidetSub?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadRated() async {
+    if (!context.session.isSignedIn) return;
+    try {
+      final ids = await context.bidets.fetchRatedIds();
+      if (mounted) setState(() => _ratedIds = ids);
+    } catch (_) {
+      // Not knowing what you rated is cosmetic; never surface it.
+    }
   }
 
   void _subscribe() {
@@ -161,10 +180,15 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   List<Bidet> get _filtered {
-    final sorted = _sortedByDistance(_bidets);
-    if (_searchQuery.isEmpty) return sorted;
+    var list = _sortedByDistance(_bidets);
+
+    if (_typeFilter.isNotEmpty) {
+      list = list.where((b) => _typeFilter.contains(b.type)).toList();
+    }
+
+    if (_searchQuery.isEmpty) return list;
     final q = _searchQuery.toLowerCase();
-    return sorted
+    return list
         .where((b) =>
             b.placeName.toLowerCase().contains(q) ||
             b.floor.toLowerCase().contains(q) ||
@@ -353,60 +377,43 @@ class _MapScreenState extends State<MapScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Nearby bidets (${_bidets.length})',
+                            filtered.length == _bidets.length
+                                ? 'Nearby bidets (${_bidets.length})'
+                                : 'Nearby bidets '
+                                    '(${filtered.length} of ${_bidets.length})',
                             style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(height: 8),
-                          TextField(
+                          ShadInput(
                             controller: _searchController,
-                            onChanged: (v) =>
-                                setState(() => _searchQuery = v),
-                            decoration: InputDecoration(
-                              hintText: 'Search by name or location…',
-                              hintStyle: TextStyle(
-                                  color: context.shad.mutedForeground,
-                                  fontSize: 13),
-                              prefixIcon: Icon(Icons.search,
-                                  color: context.shad.mutedForeground,
-                                  size: 18),
-                              suffixIcon: _searchQuery.isNotEmpty
-                                  ? GestureDetector(
-                                      onTap: () {
-                                        _searchController.clear();
-                                        setState(
-                                            () => _searchQuery = '');
-                                      },
-                                      child: Icon(Icons.close,
-                                          color: context.shad.mutedForeground,
-                                          size: 18),
-                                    )
-                                  : null,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(
-                                      horizontal: 14, vertical: 10),
-                              border: OutlineInputBorder(
-                                borderRadius:
-                                    BorderRadius.circular(10),
-                                borderSide: BorderSide(
-                                    color: context.shad.border),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius:
-                                    BorderRadius.circular(10),
-                                borderSide: BorderSide(
-                                    color: context.shad.border),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius:
-                                    BorderRadius.circular(10),
-                                borderSide:
-                                    BorderSide(color: context.shad.primary),
-                              ),
-                              filled: true,
-                              fillColor: context.shad.muted,
-                            ),
+                            onChanged: (v) => setState(() => _searchQuery = v),
+                            placeholder:
+                                const Text('Search name, floor or type'),
+                            leading: Icon(Icons.search,
+                                size: 17, color: context.shad.mutedForeground),
+                            trailing: _searchQuery.isEmpty
+                                ? null
+                                : ShadIconButton.ghost(
+                                    width: 22,
+                                    height: 22,
+                                    padding: EdgeInsets.zero,
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      setState(() => _searchQuery = '');
+                                    },
+                                    icon: Icon(Icons.close,
+                                        size: 15,
+                                        color: context.shad.mutedForeground),
+                                  ),
+                          ),
+                          const SizedBox(height: Insets.sm),
+                          _TypeFilterBar(
+                            selected: _typeFilter,
+                            onToggle: (t) => setState(() {
+                              if (!_typeFilter.remove(t)) _typeFilter.add(t);
+                            }),
                           ),
                         ],
                       ),
@@ -443,6 +450,7 @@ class _MapScreenState extends State<MapScreen> {
                                 return BidetCard(
                                   bidet: bidet,
                                   distance: _distance(bidet),
+                                  rated: _ratedIds.contains(bidet.id),
                                   onTap: () {
                                     _selectAndFly(bidet);
                                     _openDetail(bidet);
@@ -774,4 +782,79 @@ class _PinTipPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_PinTipPainter old) => old.color != color;
+}
+
+/// Filter chips for the three bidet types, in the same colours the landing
+/// page legend and the map pins use.
+class _TypeFilterBar extends StatelessWidget {
+  const _TypeFilterBar({required this.selected, required this.onToggle});
+
+  final Set<BidetType> selected;
+  final ValueChanged<BidetType> onToggle;
+
+  static Color _colorFor(BidetType t) => switch (t) {
+        BidetType.sprayHose => AppColors.typeSpray,
+        BidetType.bidetSeat => AppColors.typeSeat,
+        BidetType.tabo => AppColors.typeTabo,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.shad;
+    return Row(
+      children: [
+        for (final t in BidetType.values) ...[
+          if (t != BidetType.values.first) const SizedBox(width: Insets.sm),
+          Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(Radii.sm),
+              onTap: () => onToggle(t),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 7),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(Radii.sm),
+                  color: selected.contains(t)
+                      ? _colorFor(t).withValues(alpha: 0.12)
+                      : null,
+                  border: Border.all(
+                    color: selected.contains(t) ? _colorFor(t) : cs.border,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: _colorFor(t),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        t.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.body(
+                          size: 11.5,
+                          weight: selected.contains(t)
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: selected.contains(t)
+                              ? _colorFor(t)
+                              : cs.mutedForeground,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 }

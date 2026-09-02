@@ -10,6 +10,18 @@ import 'models/bidet.dart';
 /// Screens depend on this interface rather than on Supabase directly, which is
 /// what makes them testable (see `test/`) and what would make a future backend
 /// swap a single-class change.
+/// Raised for write failures the UI should show verbatim. Row-level security
+/// rejections in particular are worth naming: they look like a network error
+/// but are really "you are not allowed to do that", and the generic message
+/// sent people looking in the wrong place.
+class BidetFailure implements Exception {
+  final String message;
+  const BidetFailure(this.message);
+
+  @override
+  String toString() => message;
+}
+
 abstract interface class BidetRepository {
   /// Live stream of approved bidets.
   Stream<List<Bidet>> watchApproved();
@@ -29,9 +41,40 @@ abstract interface class BidetRepository {
 
   Future<void> setImageUrl(String id, String imageUrl);
 
+  /// Bidets this user submitted, any status — so a contributor can see that
+  /// something is still pending, or why it was turned down.
+  Future<List<Bidet>> fetchMine(String userId);
+
+  /// Every approved bidet, for the moderator's browse view.
+  Future<List<Bidet>> fetchApproved();
+
   Future<void> approve(String id);
 
+  /// Rejects with a reason instead of deleting, so the contributor gets an
+  /// explanation and cannot silently resubmit the same place.
+  Future<void> reject(String id, String reason);
+
   Future<void> delete(String id);
+
+  /// This user's own rating for a bidet, if they have rated it.
+  Future<BidetRating?> fetchMyRating(String bidetId);
+
+  /// Ids of bidets this user has already rated, for marking the list and map.
+  Future<Set<String>> fetchRatedIds();
+
+  /// Existing bidets within [radiusMeters] of a point, nearest first — used to
+  /// catch duplicates before they are created.
+  Future<List<NearbyBidet>> findNearby(
+    double latitude,
+    double longitude, {
+    double radiusMeters,
+  });
+
+  /// Flags a listing as gone, broken or wrong.
+  Future<void> report(String bidetId, ReportKind kind, String? note);
+
+  /// Open report counts keyed by bidet id, for the moderation queue.
+  Future<Map<String, int>> fetchOpenReportCounts();
 
   /// Records one user's rating. Averaging happens in the database so
   /// concurrent raters cannot clobber each other.
@@ -77,10 +120,102 @@ class SupabaseBidetRepository implements BidetRepository {
     return data.map(Bidet.fromMap).toList();
   }
 
+  /// Embeds the contributor's username through the profiles foreign key added
+  /// in migration 0003.
+  static const _withProfile = '*, profiles!bidets_submitted_by_profile_fkey(username)';
+
   @override
   Future<Bidet> fetchById(String id) async {
-    final data = await _db.from(_table).select().eq('id', id).single();
+    final data = await _db.from(_table).select(_withProfile).eq('id', id).single();
     return Bidet.fromMap(data);
+  }
+
+  @override
+  Future<List<Bidet>> fetchMine(String userId) async {
+    final data = await _db
+        .from(_table)
+        .select(_withProfile)
+        .eq('submitted_by', userId)
+        .order('created_at', ascending: false);
+    return data.map(Bidet.fromMap).toList();
+  }
+
+  @override
+  Future<List<Bidet>> fetchApproved() async {
+    final data = await _db
+        .from(_table)
+        .select(_withProfile)
+        .eq('status', BidetStatus.approved.id)
+        .order('created_at', ascending: false);
+    return data.map(Bidet.fromMap).toList();
+  }
+
+  @override
+  Future<BidetRating?> fetchMyRating(String bidetId) async {
+    final userId = _db.auth.currentUser?.id;
+    if (userId == null) return null;
+    final row = await _db
+        .from('bidet_ratings')
+        .select('cleanliness, pressure, accessibility, privacy')
+        .eq('bidet_id', bidetId)
+        .eq('user_id', userId)
+        .maybeSingle();
+    return row == null ? null : BidetRating.fromMap(row);
+  }
+
+  @override
+  Future<Set<String>> fetchRatedIds() async {
+    final userId = _db.auth.currentUser?.id;
+    if (userId == null) return <String>{};
+    final rows = await _db
+        .from('bidet_ratings')
+        .select('bidet_id')
+        .eq('user_id', userId);
+    return rows.map((r) => r['bidet_id'].toString()).toSet();
+  }
+
+  @override
+  Future<List<NearbyBidet>> findNearby(
+    double latitude,
+    double longitude, {
+    double radiusMeters = 120,
+  }) async {
+    final rows = await _db.rpc('bidets_near', params: {
+      'p_lat': latitude,
+      'p_lng': longitude,
+      'p_radius_m': radiusMeters,
+    });
+    return (rows as List)
+        .map((r) => NearbyBidet.fromMap(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  Future<void> report(String bidetId, ReportKind kind, String? note) async {
+    final userId = _db.auth.currentUser?.id;
+    if (userId == null) {
+      throw const BidetFailure('Sign in to report a problem.');
+    }
+    try {
+      await _db.from('bidet_reports').insert({
+        'bidet_id': bidetId,
+        'user_id': userId,
+        'kind': kind.id,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      });
+    } on PostgrestException catch (e) {
+      throw BidetFailure(_friendly(e));
+    }
+  }
+
+  @override
+  Future<Map<String, int>> fetchOpenReportCounts() async {
+    final rows = await _db.rpc('open_report_counts');
+    return {
+      for (final r in (rows as List))
+        (r as Map<String, dynamic>)['bidet_id'].toString():
+            (r['open_reports'] as num).toInt(),
+    };
   }
 
   @override
@@ -95,12 +230,48 @@ class SupabaseBidetRepository implements BidetRepository {
 
   @override
   Future<Bidet> add(Bidet bidet, {String? userId}) async {
-    final data = await _db
-        .from(_table)
-        .insert(bidet.toInsert(userId: userId))
-        .select()
-        .single();
-    return Bidet.fromMap(data);
+    // Without an id the row cannot satisfy the insert policy
+    // (`submitted_by = auth.uid()`), and Postgres reports that as a generic
+    // RLS violation. Fail here instead, where the cause is obvious.
+    if (userId == null || userId.isEmpty) {
+      throw const BidetFailure(
+        'You need to be signed in to add a bidet. Sign in and try again.',
+      );
+    }
+
+    try {
+      final data = await _db
+          .from(_table)
+          .insert(bidet.toInsert(userId: userId))
+          .select()
+          .single();
+      return Bidet.fromMap(data);
+    } on PostgrestException catch (e) {
+      throw BidetFailure(_friendly(e));
+    }
+  }
+
+  /// Turns Postgres error codes into something a person can act on.
+  String _friendly(PostgrestException e) {
+    final code = e.code ?? '';
+    final msg = e.message.toLowerCase();
+
+    // 42501 = insufficient privilege, which is what a row-level-security
+    // rejection surfaces as.
+    if (code == '42501' || msg.contains('row-level security')) {
+      return 'The database rejected this submission. Your session may have '
+          'expired — sign out and back in, then try again.';
+    }
+    if (code == '23505') {
+      return 'That bidet already exists.';
+    }
+    if (code == '23502') {
+      return 'Something required was missing from the submission.';
+    }
+    if (code == '23503') {
+      return 'Your account is not fully set up yet. Sign out and back in.';
+    }
+    return 'Could not save this bidet: ${e.message}';
   }
 
   @override
@@ -138,9 +309,26 @@ class SupabaseBidetRepository implements BidetRepository {
       _db.from(_table).update({'image_url': imageUrl}).eq('id', id);
 
   @override
-  Future<void> approve(String id) => _db
-      .from(_table)
-      .update({'status': BidetStatus.approved.id}).eq('id', id);
+  Future<void> approve(String id) async {
+    // The RPC stamps reviewed_by/reviewed_at, which a plain update cannot.
+    try {
+      await _db.rpc('approve_bidet', params: {'p_bidet_id': id});
+    } on PostgrestException catch (e) {
+      throw BidetFailure(_friendly(e));
+    }
+  }
+
+  @override
+  Future<void> reject(String id, String reason) async {
+    try {
+      await _db.rpc('reject_bidet', params: {
+        'p_bidet_id': id,
+        'p_reason': reason,
+      });
+    } on PostgrestException catch (e) {
+      throw BidetFailure(_friendly(e));
+    }
+  }
 
   @override
   Future<void> delete(String id) => _db.from(_table).delete().eq('id', id);
