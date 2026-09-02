@@ -28,11 +28,8 @@ class AppHeader extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: p.primary,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
+        color: p.card,
+        border: Border(bottom: BorderSide(color: p.border)),
       ),
       child: SafeArea(
         bottom: false,
@@ -66,22 +63,18 @@ class AppHeader extends StatelessWidget {
                   ),
                 if (icon != null) ...[
                   const SizedBox(height: Insets.xl),
-                  Icon(icon, color: p.primaryForeground, size: 40),
+                  Icon(icon, color: p.mutedForeground, size: 28),
                 ],
                 const SizedBox(height: Insets.md),
                 Text(
                   title,
-                  style: context.texts.headlineMedium?.copyWith(
-                    color: p.primaryForeground,
-                  ),
+                  style: AppType.heading(size: 26, color: p.foreground),
                 ),
                 if (subtitle != null) ...[
                   const SizedBox(height: Insets.xs + 2),
                   Text(
                     subtitle!,
-                    style: context.texts.bodyLarge?.copyWith(
-                      color: p.primaryForeground.withValues(alpha: 0.78),
-                    ),
+                    style: AppType.body(size: 14, color: p.mutedForeground),
                   ),
                 ],
                 if (bottom != null) ...[
@@ -116,7 +109,7 @@ class GlassIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.shad;
     final button = Material(
-      color: p.primaryForeground.withValues(alpha: 0.15),
+      color: p.muted,
       borderRadius: BorderRadius.circular(Radii.md),
       child: InkWell(
         borderRadius: BorderRadius.circular(Radii.md),
@@ -129,10 +122,10 @@ class GlassIconButton extends StatelessWidget {
                   height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation(p.primaryForeground),
+                    valueColor: AlwaysStoppedAnimation(p.foreground),
                   ),
                 )
-              : Icon(icon, color: p.primaryForeground, size: 18),
+              : Icon(icon, color: p.foreground, size: 18),
         ),
       ),
     );
@@ -381,7 +374,7 @@ class StarRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = color ?? Colors.amber.shade400;
+    final c = color ?? AppColors.amber;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(5, (i) {
@@ -434,7 +427,7 @@ class StarSelector extends StatelessWidget {
               icon: Icon(
                 selected ? Icons.star_rounded : Icons.star_outline_rounded,
                 color: selected
-                    ? Colors.amber.shade500
+                    ? AppColors.amber
                     : context.shad.mutedForeground,
                 size: 26,
               ),

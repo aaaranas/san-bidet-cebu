@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/app_scope.dart';
+import '../../core/theme.dart';
 import '../../core/router.dart';
 import '../../data/models/bidet.dart';
 
@@ -198,12 +199,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          Text(value,
-              style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  color: cs.foreground,
-                  height: 1)),
+          Text(value, style: AppType.figure(size: 28, color: cs.foreground)),
           const SizedBox(height: 2),
           Text(label, style: theme.textTheme.muted),
         ],

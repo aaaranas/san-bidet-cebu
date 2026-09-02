@@ -200,32 +200,48 @@ class _MapScreenState extends State<MapScreen> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: context.shad.primary,
+                  // Neutral card rather than a solid green bar: over map tiles
+                  // a saturated block competes with the pins, which are the
+                  // thing the colour is supposed to mean.
+                  color: context.shad.card,
                   borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: context.shad.border),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 8,
+                        color: Colors.black.withValues(alpha: 0.10),
+                        blurRadius: 10,
                         offset: const Offset(0, 2))
                   ],
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.water_drop_outlined,
-                        color: Colors.white, size: 20),
-                    const SizedBox(width: 8),
-                    const Text(
+                    Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: AppColors.green,
+                        borderRadius: BorderRadius.circular(Radii.xs + 2),
+                      ),
+                      child: const Icon(Icons.water_drop,
+                          color: Colors.white, size: 13),
+                    ),
+                    const SizedBox(width: 9),
+                    Text(
                       'SanBidet Cebu',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16),
+                      style: AppType.heading(
+                          size: 15.5, color: context.shad.foreground),
                     ),
                     const Spacer(),
                     Text(
-                      '${_bidets.length} bidets',
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 12),
+                      '${_bidets.length}',
+                      style: AppType.figure(
+                          size: 14, color: context.shad.foreground),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'mapped',
+                      style: AppType.body(
+                          size: 12, color: context.shad.mutedForeground),
                     ),
                   ],
                 ),
@@ -266,7 +282,7 @@ class _MapScreenState extends State<MapScreen> {
                   _fetchLocation();
                 }
               },
-              backgroundColor: Colors.white,
+              backgroundColor: context.shad.card,
               foregroundColor: context.shad.primary,
               child: const Icon(Icons.my_location),
             ),
@@ -283,14 +299,14 @@ class _MapScreenState extends State<MapScreen> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.82),
+                    color: context.shad.card.withValues(alpha: 0.88),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     _style.attribution,
                     style: TextStyle(
                         fontSize: 9.5,
-                        color: Colors.grey.shade700,
+                        color: context.shad.mutedForeground,
                         fontWeight: FontWeight.w500),
                   ),
                 ),
@@ -304,13 +320,14 @@ class _MapScreenState extends State<MapScreen> {
             maxChildSize: 0.75,
             builder: (context, scrollController) {
               return Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius:
-                      BorderRadius.vertical(top: Radius.circular(20)),
+                decoration: BoxDecoration(
+                  color: context.shad.card,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black12,
+                        color: Colors.black.withValues(alpha: 0.10),
                         blurRadius: 10,
                         offset: Offset(0, -2))
                   ],
@@ -324,7 +341,7 @@ class _MapScreenState extends State<MapScreen> {
                         width: 36,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
+                          color: context.shad.border,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -349,10 +366,10 @@ class _MapScreenState extends State<MapScreen> {
                             decoration: InputDecoration(
                               hintText: 'Search by name or location…',
                               hintStyle: TextStyle(
-                                  color: Colors.grey.shade400,
+                                  color: context.shad.mutedForeground,
                                   fontSize: 13),
                               prefixIcon: Icon(Icons.search,
-                                  color: Colors.grey.shade400,
+                                  color: context.shad.mutedForeground,
                                   size: 18),
                               suffixIcon: _searchQuery.isNotEmpty
                                   ? GestureDetector(
@@ -362,7 +379,7 @@ class _MapScreenState extends State<MapScreen> {
                                             () => _searchQuery = '');
                                       },
                                       child: Icon(Icons.close,
-                                          color: Colors.grey.shade400,
+                                          color: context.shad.mutedForeground,
                                           size: 18),
                                     )
                                   : null,
@@ -373,13 +390,13 @@ class _MapScreenState extends State<MapScreen> {
                                 borderRadius:
                                     BorderRadius.circular(10),
                                 borderSide: BorderSide(
-                                    color: Colors.grey.shade200),
+                                    color: context.shad.border),
                               ),
                               enabledBorder: OutlineInputBorder(
                                 borderRadius:
                                     BorderRadius.circular(10),
                                 borderSide: BorderSide(
-                                    color: Colors.grey.shade200),
+                                    color: context.shad.border),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius:
@@ -388,7 +405,7 @@ class _MapScreenState extends State<MapScreen> {
                                     BorderSide(color: context.shad.primary),
                               ),
                               filled: true,
-                              fillColor: Colors.grey.shade50,
+                              fillColor: context.shad.muted,
                             ),
                           ),
                         ],
@@ -402,14 +419,14 @@ class _MapScreenState extends State<MapScreen> {
                                 children: [
                                   Icon(Icons.wc_outlined,
                                       size: 48,
-                                      color: Colors.grey.shade300),
+                                      color: context.shad.border),
                                   const SizedBox(height: 8),
                                   Text(
                                     _searchQuery.isEmpty
                                         ? 'No bidets yet — be the first!'
                                         : 'No results for "$_searchQuery"',
                                     style: TextStyle(
-                                        color: Colors.grey.shade400,
+                                        color: context.shad.mutedForeground,
                                         fontSize: 13),
                                     textAlign: TextAlign.center,
                                   ),
@@ -444,7 +461,7 @@ class _MapScreenState extends State<MapScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: () => context.push(Routes.addBidet),
         backgroundColor: context.shad.primary,
-        foregroundColor: Colors.white,
+        foregroundColor: context.shad.primaryForeground,
         child: const Icon(Icons.add),
       ),
     );
@@ -539,12 +556,12 @@ class _MapScreenState extends State<MapScreen> {
                 height: 24,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.blue,
+                    color: AppColors.userDot,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 3),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.blue.withValues(alpha: 0.4),
+                        color: AppColors.userDot.withValues(alpha: 0.4),
                         blurRadius: 8,
                         spreadRadius: 2,
                       ),
@@ -582,7 +599,7 @@ class _MapScreenState extends State<MapScreen> {
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.shad.card,
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
@@ -623,7 +640,7 @@ class _MapScreenState extends State<MapScreen> {
                   Container(
                     width: 28,
                     height: 1,
-                    color: Colors.grey.shade200,
+                    color: context.shad.border,
                   ),
                   for (final s in _styles) _layerOption(s),
                   const SizedBox(height: 4),

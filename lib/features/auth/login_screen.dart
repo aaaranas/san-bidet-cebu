@@ -34,9 +34,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // Routing on a restored or new session is handled centrally by the router's
-  // redirect, which listens to SessionController — so this screen no longer
-  // keeps its own auth subscription or pushes replacements itself. That also
-  // covers returning from the Google OAuth redirect.
+  // redirect, which listens to SessionController, so this screen keeps no auth
+  // subscription of its own and never pushes replacements itself.
 
   Future<void> _login() async {
     // Resolved before the first await so no BuildContext crosses an async gap.
@@ -81,22 +80,6 @@ class _LoginScreenState extends State<LoginScreen> {
         _error = 'Something went wrong. Check your connection and try again.';
         _loading = false;
       });
-    }
-  }
-
-  Future<void> _googleSignIn() async {
-    final auth = context.auth;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await auth.signInWithGoogle();
-      // Web: the page redirects away now. Mobile: the session arrives through
-      // SessionController and the router redirect takes it from there.
-    } on AuthFailure catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Could not start Google sign-in.')),
-      );
     }
   }
 
@@ -167,12 +150,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: _loading
                             ? const _Spinner()
                             : const Text('Sign in'),
-                      ),
-                      const SizedBox(height: 10),
-                      ShadButton.outline(
-                        width: double.infinity,
-                        onPressed: _googleSignIn,
-                        child: const Text('Continue with Google'),
                       ),
                       if (!widget.adminMode) ...[
                         const SizedBox(height: 18),

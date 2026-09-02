@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Domain-level view of the signed-in user, so screens never import Supabase
@@ -38,11 +37,6 @@ abstract interface class AuthRepository {
   Future<AppUser> signIn(String email, String password);
 
   Future<AppUser> signUp(String email, String password, {required String username});
-
-  /// Starts the Google OAuth flow. Returns before sign-in completes: on web the
-  /// page redirects to Google and back, on mobile an external browser opens and
-  /// returns via deep link. The resulting session arrives through [watchUser].
-  Future<void> signInWithGoogle();
 
   Future<void> signOut();
 
@@ -169,26 +163,6 @@ class SupabaseAuthRepository implements AuthRepository {
       return 'Too many attempts. Please wait a minute and try again.';
     }
     return e.message;
-  }
-
-  /// Deep-link scheme used on Android/iOS to return from the Google sign-in
-  /// browser. Must match the redirect registered in the Supabase dashboard and
-  /// the platform deep-link config. On web the flow returns to the site URL
-  /// configured in Supabase, so no redirect is passed.
-  static const _mobileRedirect = 'io.supabase.sanbidetcebu://login-callback/';
-
-  @override
-  Future<void> signInWithGoogle() async {
-    try {
-      await _client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: kIsWeb ? null : _mobileRedirect,
-      );
-    } on AuthApiException catch (e) {
-      throw AuthFailure(_friendly(e));
-    } on AuthException catch (e) {
-      throw AuthFailure(e.message);
-    }
   }
 
   @override

@@ -25,10 +25,11 @@ class BidetCard extends StatelessWidget {
         BidetType.sprayHose => Icons.shower_outlined,
       };
 
+  /// One hue per type, shared with the map pin and the landing-page legend.
   static Color _colorFor(BidetType type) => switch (type) {
-        BidetType.bidetSeat => const Color(0xFF7B5EA7),
-        BidetType.tabo => const Color(0xFF2C7BB6),
-        BidetType.sprayHose => AppColors.pin,
+        BidetType.bidetSeat => AppColors.typeSeat,
+        BidetType.tabo => AppColors.typeTabo,
+        BidetType.sprayHose => AppColors.typeSpray,
       };
 
   @override
@@ -69,7 +70,11 @@ class BidetCard extends StatelessWidget {
                 children: [
                   Text(
                     bidet.placeName,
-                    style: context.texts.titleMedium?.copyWith(fontSize: 13.5),
+                    style: AppType.body(
+                      size: 14,
+                      weight: FontWeight.w700,
+                      color: p.foreground,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -80,7 +85,7 @@ class BidetCard extends StatelessWidget {
                         Icons.star_rounded,
                         size: 13,
                         color: bidet.ratingCount > 0
-                            ? Colors.amber.shade600
+                            ? AppColors.amber
                             : p.mutedForeground,
                       ),
                       const SizedBox(width: 2),
@@ -88,7 +93,8 @@ class BidetCard extends StatelessWidget {
                         bidet.ratingCount > 0
                             ? bidet.rating.toStringAsFixed(1)
                             : 'Unrated',
-                        style: context.texts.bodySmall,
+                        style: AppType.body(
+                            size: 12.5, color: p.mutedForeground),
                       ),
                       const SizedBox(width: 6),
                       Flexible(
@@ -107,11 +113,7 @@ class BidetCard extends StatelessWidget {
             if (distance.isNotEmpty)
               Text(
                 distance,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: p.primary,
-                ),
+                style: AppType.figure(size: 12.5, color: p.foreground),
               ),
           ],
         ),

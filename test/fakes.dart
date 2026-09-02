@@ -175,17 +175,6 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> signInWithGoogle() async {
-    if (failure != null) throw failure!;
-    _user = const AppUser(
-      id: 'u-google',
-      email: 'tester@gmail.com',
-      username: 'tester',
-    );
-    _controller.add(_user);
-  }
-
-  @override
   Future<void> signOut() async {
     _user = null;
     _controller.add(null);

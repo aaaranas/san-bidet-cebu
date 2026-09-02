@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../core/app_scope.dart';
 import '../../core/router.dart';
+import '../../core/theme.dart';
 import '../../data/auth_repository.dart';
 
 /// shadcn "signup-01" block, adapted to Flutter via shadcn_ui.
@@ -23,7 +24,6 @@ class _SignupScreenState extends State<SignupScreen> {
 
   // Routing on a new or restored session is handled by the router's redirect,
   // which listens to SessionController — including the return leg of the
-  // Google OAuth flow.
 
   @override
   void dispose() {
@@ -90,20 +90,6 @@ class _SignupScreenState extends State<SignupScreen> {
         _error = 'Could not create your account. Please try again.';
         _loading = false;
       });
-    }
-  }
-
-  Future<void> _googleSignIn() async {
-    final auth = context.auth;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await auth.signInWithGoogle();
-    } on AuthFailure catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
-    } catch (_) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Could not start Google sign-in.')),
-      );
     }
   }
 
@@ -176,12 +162,6 @@ class _SignupScreenState extends State<SignupScreen> {
                             ? const _Spinner()
                             : const Text('Create account'),
                       ),
-                      const SizedBox(height: 10),
-                      ShadButton.outline(
-                        width: double.infinity,
-                        onPressed: _googleSignIn,
-                        child: const Text('Continue with Google'),
-                      ),
                       const SizedBox(height: 18),
                       Center(
                         child: Row(
@@ -219,18 +199,31 @@ class _StrengthBar extends StatelessWidget {
   final int strength;
   const _StrengthBar({required this.strength});
 
+  static const _labels = [
+    '',
+    'Very weak',
+    'Weak',
+    'Fair',
+    'Strong',
+    'Very strong',
+  ];
+
+  /// Three semantic states rather than a five-colour rainbow: weak reads as an
+  /// error, fair as a caution, strong as the accent. Colours come from the
+  /// theme so the meter survives dark mode.
+  Color _fill(BuildContext context, int score) {
+    final cs = ShadTheme.of(context).colorScheme;
+    if (score <= 2) return cs.destructive;
+    if (score == 3) return AppColors.amber;
+    return cs.primary;
+  }
+
   @override
   Widget build(BuildContext context) {
-    const labels = ['', 'Very weak', 'Weak', 'Fair', 'Strong', 'Very strong'];
-    final colors = [
-      Colors.transparent,
-      Colors.red,
-      Colors.orange,
-      Colors.yellow.shade700,
-      Colors.lightGreen,
-      const Color(0xFF16A34A),
-    ];
+    final cs = ShadTheme.of(context).colorScheme;
     final clamped = strength.clamp(0, 5);
+    final fill = _fill(context, clamped);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -241,20 +234,20 @@ class _StrengthBar extends StatelessWidget {
                 height: 4,
                 margin: EdgeInsets.only(right: i < 4 ? 4 : 0),
                 decoration: BoxDecoration(
-                  color: i < strength ? colors[clamped] : Colors.grey.shade200,
+                  color: i < clamped ? fill : cs.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             );
           }),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 5),
         Text(
-          clamped > 0 ? labels[clamped] : '',
-          style: TextStyle(
-            fontSize: 11,
-            color: colors[clamped],
-            fontWeight: FontWeight.w500,
+          clamped > 0 ? _labels[clamped] : '',
+          style: AppType.body(
+            size: 11.5,
+            weight: FontWeight.w600,
+            color: clamped > 0 ? fill : cs.mutedForeground,
           ),
         ),
       ],

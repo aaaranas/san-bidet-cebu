@@ -193,7 +193,9 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
               ),
             ),
           Container(
-            color: p.primary,
+            // Neutral header. The rating figure and the type chip supply the
+            // colour here; a solid green field drowned both.
+            color: p.card,
             padding: EdgeInsets.fromLTRB(
               Insets.xl,
               bidet.imageUrl != null ? Insets.lg : Insets.sm,
@@ -206,10 +208,7 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
                 children: [
                   Text(
                     bidet.floor,
-                    style: TextStyle(
-                      color: p.primaryForeground.withValues(alpha: 0.75),
-                      fontSize: 13,
-                    ),
+                    style: AppType.body(size: 13, color: p.mutedForeground),
                   ),
                   const SizedBox(height: Insets.md),
                   Row(
@@ -218,11 +217,7 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
                         bidet.ratingCount == 0
                             ? '—'
                             : bidet.rating.toStringAsFixed(1),
-                        style: TextStyle(
-                          color: p.primaryForeground,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: AppType.figure(size: 30, color: p.foreground),
                       ),
                       const SizedBox(width: Insets.sm),
                       StarRow(rating: bidet.rating),
@@ -232,10 +227,8 @@ class _BidetDetailScreenState extends State<BidetDetailScreen> {
                           bidet.ratingCount == 1
                               ? '1 rating'
                               : '${bidet.ratingCount} ratings',
-                          style: TextStyle(
-                            color: p.primaryForeground.withValues(alpha: 0.7),
-                            fontSize: 12,
-                          ),
+                          style: AppType.body(
+                              size: 12, color: p.mutedForeground),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -322,12 +315,13 @@ class _Badge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: Insets.xs),
       decoration: BoxDecoration(
-        color: p.primaryForeground.withValues(alpha: 0.2),
+        color: p.muted,
         borderRadius: BorderRadius.circular(Radii.pill),
       ),
       child: Text(
         label,
-        style: TextStyle(color: p.primaryForeground, fontSize: 11),
+        style: AppType.body(
+            size: 11.5, weight: FontWeight.w600, color: p.mutedForeground),
       ),
     );
   }
