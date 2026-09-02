@@ -27,6 +27,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // The callback still fires if this screen was disposed during the
+      // frame — touching context then registers a dependency on a dead
+      // element and trips InheritedElement's _dependents assertion.
+      if (!mounted) return;
       _sub = context.bidets.watchApproved().listen((b) {
         if (!mounted) return;
         setState(() {
@@ -112,8 +116,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Row(children: [
                     Expanded(
                         child: _statCard(theme, 'Total bidets', '${_bidets.length}',
-                            Icons.wc_outlined,
-                            badge: 'Cebu')),
+                            Icons.wc_outlined)),
                     const SizedBox(width: 12),
                     Expanded(
                         child: _statCard(theme, 'Avg rating',
@@ -129,9 +132,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             badgePositive: monthDelta >= 0)),
                     const SizedBox(width: 12),
                     Expanded(
-                        child: _statCard(theme, 'Highly rated', '$_topRated',
-                            Icons.verified_outlined,
-                            badge: '≥ 4.0★')),
+                        child: _statCard(theme, 'Rated 4.0 or better', '$_topRated',
+                            Icons.verified_outlined)),
                   ]),
                   const SizedBox(height: 16),
                   _criteriaCard(theme),
@@ -176,7 +178,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _statCard(ShadThemeData theme, String label, String value, IconData icon,
-      {required String badge, bool badgePositive = true}) {
+      {String? badge, bool badgePositive = true}) {
     final cs = theme.colorScheme;
     return ShadCard(
       padding: const EdgeInsets.all(16),
@@ -187,9 +189,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               Icon(icon, size: 18, color: cs.mutedForeground),
               const Spacer(),
-              badgePositive
-                  ? ShadBadge.secondary(child: Text(badge))
-                  : ShadBadge.destructive(child: Text(badge)),
+              // Only render a badge when there is a real figure behind it.
+              // 'Cebu' and '≥ 4.0★' were static captions styled as metrics.
+              if (badge != null)
+                badgePositive
+                    ? ShadBadge.secondary(child: Text(badge))
+                    : ShadBadge.destructive(child: Text(badge)),
             ],
           ),
           const SizedBox(height: 12),

@@ -44,3 +44,31 @@ $$;
 -- Defaults follow the new type.
 alter table public.bidets   alter column created_at set default now();
 alter table public.profiles alter column created_at set default now();
+
+-- ---------------------------------------------------------------------------
+-- Realtime
+-- ---------------------------------------------------------------------------
+--
+-- The map and dashboard subscribe with Supabase Realtime (`.stream()`), which
+-- only delivers rows for tables in the `supabase_realtime` publication.
+-- Without this the stream connects, stays silent, and the UI shows "0 bidets"
+-- forever with no error anywhere.
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (
+       select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime'
+         and schemaname = 'public'
+         and tablename = 'bidets'
+     )
+  then
+    alter publication supabase_realtime add table public.bidets;
+  end if;
+end
+$$;
+
+-- Realtime sends old-row data for updates/deletes only with REPLICA IDENTITY
+-- FULL; without it a row leaving the stream cannot be matched back.
+alter table public.bidets replica identity full;

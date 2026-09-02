@@ -27,7 +27,11 @@ class _AdminScreenState extends State<AdminScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // See note in map_screen: a post-frame callback can outlive the element.
+      if (!mounted) return;
+      _load();
+    });
   }
 
   Future<void> _load() async {

@@ -121,12 +121,12 @@ class _LoginScreenState extends State<LoginScreen> {
               child: ShadCard(
                 width: double.infinity,
                 title: Text(
-                  widget.adminMode ? 'Admin login' : 'Login to your account',
+                  widget.adminMode ? 'Moderator sign in' : 'Welcome back',
                 ),
                 description: Text(
                   widget.adminMode
-                      ? 'Enter your admin credentials below to continue'
-                      : 'Enter your email below to login to your account',
+                      ? 'Only moderator accounts can review submissions.'
+                      : 'Sign in to add bidets and rate the ones you visit.',
                 ),
                 child: Padding(
                   padding: const EdgeInsets.only(top: 16),
@@ -166,13 +166,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         onPressed: _loading ? null : _login,
                         child: _loading
                             ? const _Spinner()
-                            : const Text('Login'),
+                            : const Text('Sign in'),
                       ),
                       const SizedBox(height: 10),
                       ShadButton.outline(
                         width: double.infinity,
                         onPressed: _googleSignIn,
-                        child: const Text('Login with Google'),
+                        child: const Text('Continue with Google'),
                       ),
                       if (!widget.adminMode) ...[
                         const SizedBox(height: 18),

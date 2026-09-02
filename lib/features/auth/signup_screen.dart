@@ -123,9 +123,9 @@ class _SignupScreenState extends State<SignupScreen> {
               constraints: const BoxConstraints(maxWidth: 400),
               child: ShadCard(
                 width: double.infinity,
-                title: const Text('Create an account'),
+                title: const Text('Join the map'),
                 description: const Text(
-                  'Enter your details below to create your account',
+                  'Add the bidets you find and rate the ones you use.',
                 ),
                 child: Padding(
                   padding: const EdgeInsets.only(top: 16),
@@ -180,7 +180,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       ShadButton.outline(
                         width: double.infinity,
                         onPressed: _googleSignIn,
-                        child: const Text('Sign up with Google'),
+                        child: const Text('Continue with Google'),
                       ),
                       const SizedBox(height: 18),
                       Center(

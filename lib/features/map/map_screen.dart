@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/app_config.dart';
 import '../../core/app_scope.dart';
+import '../../core/theme.dart';
 import '../../core/router.dart';
 import '../../data/models/bidet.dart';
 import '../../widgets/bidet_card.dart';
@@ -24,7 +25,6 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  static const _green = Color(0xFF0F172A);
   static const _cebu = LatLng(10.3157, 123.8854);
 
   // Mapbox access token — passed at build/run time via:
@@ -48,9 +48,12 @@ class _MapScreenState extends State<MapScreen> {
       id: MapStyleId.map,
       label: 'Map',
       icon: Icons.map_outlined,
+      // CARTO's free basemap endpoint now stamps "API KEY REQUIRED" across
+      // every tile, so the default street map uses Esri — the same provider
+      // already backing satellite, hybrid and terrain.
       url:
-          'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-      attribution: '© OpenStreetMap, © CARTO',
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+      attribution: 'Streets © Esri, © OpenStreetMap contributors',
       dark: false,
     ),
     _MapStyle(
@@ -93,6 +96,10 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // The callback still fires if this screen was disposed during the
+      // frame — touching context then registers a dependency on a dead
+      // element and trips InheritedElement's _dependents assertion.
+      if (!mounted) return;
       _fetchLocation();
       _subscribe();
     });
@@ -167,7 +174,7 @@ class _MapScreenState extends State<MapScreen> {
 
   void _selectAndFly(Bidet bidet) {
     setState(() => _selectedBidetId = bidet.id);
-    if (kIsWeb) {
+    if (_useWebMapbox) {
       _webController.flyTo(bidet.latitude, bidet.longitude, 17);
     } else if (_useNativeMapbox) {
       _mobileController.flyTo(bidet.latitude, bidet.longitude, 17);
@@ -193,7 +200,7 @@ class _MapScreenState extends State<MapScreen> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: _green,
+                  color: context.shad.primary,
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: [
                     BoxShadow(
@@ -226,8 +233,8 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // Layer switcher (raster styles only — not used by the web 3D map)
-          if (!kIsWeb)
+          // Layer switcher (raster styles only — the Mapbox 3D map has its own)
+          if (!_useWebMapbox)
             Positioned(
               right: 16,
               bottom: 312,
@@ -242,7 +249,7 @@ class _MapScreenState extends State<MapScreen> {
               heroTag: 'locate',
               onPressed: () {
                 if (_userPosition != null) {
-                  if (kIsWeb) {
+                  if (_useWebMapbox) {
                     _webController.flyTo(_userPosition!.latitude,
                         _userPosition!.longitude, 16);
                   } else if (_useNativeMapbox) {
@@ -260,13 +267,14 @@ class _MapScreenState extends State<MapScreen> {
                 }
               },
               backgroundColor: Colors.white,
-              foregroundColor: _green,
+              foregroundColor: context.shad.primary,
               child: const Icon(Icons.my_location),
             ),
           ),
 
-          // Attribution badge (web shows Mapbox's own built-in attribution)
-          if (!kIsWeb)
+          // Attribution badge. Required by the Esri terms whenever the raster
+          // tiles are in use; Mapbox renders its own.
+          if (!_useWebMapbox)
             Positioned(
               left: 12,
               bottom: 312,
@@ -377,7 +385,7 @@ class _MapScreenState extends State<MapScreen> {
                                 borderRadius:
                                     BorderRadius.circular(10),
                                 borderSide:
-                                    const BorderSide(color: _green),
+                                    BorderSide(color: context.shad.primary),
                               ),
                               filled: true,
                               fillColor: Colors.grey.shade50,
@@ -435,15 +443,25 @@ class _MapScreenState extends State<MapScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => context.push(Routes.addBidet),
-        backgroundColor: _green,
+        backgroundColor: context.shad.primary,
         foregroundColor: Colors.white,
         child: const Icon(Icons.add),
       ),
     );
   }
 
+  /// Mapbox needs an access token. Without one, mapbox-gl / the native SDK
+  /// initialises with an empty token and renders nothing at all — which is
+  /// exactly what a default checkout does, since MAPBOX_TOKEN is a dart-define
+  /// with no fallback. The token therefore gates the whole Mapbox path, and
+  /// the token-free raster tiles are the default everywhere.
+  bool get _hasMapboxToken => _mapboxToken.trim().isNotEmpty;
+
+  bool get _useWebMapbox => _hasMapboxToken && kIsWeb;
+
   // True on Android/iOS, where the native Mapbox SDK is used.
   bool get _useNativeMapbox =>
+      _hasMapboxToken &&
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
@@ -458,7 +476,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Widget _buildMap() {
     // Web: Mapbox GL JS v3 — 3D "Standard" style with pitch + 3D buildings.
-    if (kIsWeb) {
+    if (_useWebMapbox) {
       return WebMapboxMap(
         controller: _webController,
         token: _mapboxToken,
@@ -489,7 +507,8 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    // Desktop fallback: flutter_map raster tiles.
+    // Default everywhere else (and whenever no Mapbox token is configured):
+    // token-free raster tiles.
     return FlutterMap(
       mapController: _mapController,
       options: const MapOptions(
@@ -586,7 +605,7 @@ class _MapScreenState extends State<MapScreen> {
               alignment: Alignment.center,
               child: Icon(
                 _layersOpen ? Icons.close : Icons.layers_outlined,
-                color: _green,
+                color: context.shad.primary,
                 size: 22,
               ),
             ),
@@ -635,13 +654,13 @@ class _MapScreenState extends State<MapScreen> {
                 width: 30,
                 height: 30,
                 decoration: BoxDecoration(
-                  color: selected ? _green : const Color(0xFFF1F5F9),
+                  color: selected ? context.shad.primary : context.shad.muted,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
                   s.icon,
                   size: 17,
-                  color: selected ? Colors.white : _green,
+                  color: selected ? context.shad.primaryForeground : context.shad.primary,
                 ),
               ),
               const SizedBox(height: 3),
@@ -652,7 +671,7 @@ class _MapScreenState extends State<MapScreen> {
                   height: 1.1,
                   fontWeight:
                       selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected ? _green : Colors.grey.shade600,
+                  color: selected ? context.shad.primary : context.shad.mutedForeground,
                 ),
               ),
             ],
@@ -663,7 +682,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Widget _buildMarker(bool isSelected) {
-    final color = isSelected ? const Color(0xFFE65100) : _green;
+    final color = isSelected ? AppColors.pinSelected : AppColors.pin;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
