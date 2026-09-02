@@ -10,7 +10,7 @@ import 'dart:ui_web' as ui_web;
 import 'package:flutter/widgets.dart';
 import 'package:web/web.dart' as web;
 
-import '../bidet/bidet_model.dart';
+import '../../data/models/bidet.dart';
 
 JSObject get _helper => globalContext.getProperty('SanBidetMap'.toJS);
 

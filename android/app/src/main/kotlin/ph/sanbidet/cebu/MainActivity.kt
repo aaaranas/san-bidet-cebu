@@ -1,4 +1,4 @@
-package com.example.san_bidet_cebu
+package ph.sanbidet.cebu
 
 import io.flutter.embedding.android.FlutterActivity
 

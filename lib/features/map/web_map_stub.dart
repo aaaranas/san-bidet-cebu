@@ -2,7 +2,7 @@
 // map screen guards with kIsWeb), but it must exist so the app compiles off-web.
 import 'package:flutter/widgets.dart';
 
-import '../bidet/bidet_model.dart';
+import '../../data/models/bidet.dart';
 
 class WebMapController {
   void flyTo(double lat, double lng, double zoom) {}

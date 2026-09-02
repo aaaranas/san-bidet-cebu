@@ -3,7 +3,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
-import '../bidet/bidet_model.dart';
+import '../../data/models/bidet.dart';
 
 /// Drives the native map camera (fly-to) from the map screen.
 class MobileMapController {

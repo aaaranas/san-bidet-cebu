@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../auth/login_screen.dart';
-import '../map/map_screen.dart';
+import 'package:go_router/go_router.dart';
+import '../../core/router.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -272,8 +272,7 @@ class _HomeScreenState extends State<HomeScreen>
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const MapScreen())),
+            onPressed: () => context.go(Routes.map),
             style: ElevatedButton.styleFrom(
               backgroundColor: _green,
               foregroundColor: Colors.white,
@@ -300,8 +299,7 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const LoginScreen())),
+                onPressed: () => context.push(Routes.login),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: _green,
                   side: const BorderSide(color: _green, width: 1.5),
@@ -317,11 +315,7 @@ class _HomeScreenState extends State<HomeScreen>
             const SizedBox(width: 12),
             Expanded(
               child: TextButton(
-                onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) =>
-                            const LoginScreen(isAdmin: true))),
+                onPressed: () => context.push(Routes.adminLogin),
                 style: TextButton.styleFrom(
                   foregroundColor: Colors.grey.shade500,
                   backgroundColor: const Color(0xFFEFF3F0),

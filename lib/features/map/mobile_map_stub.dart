@@ -3,7 +3,7 @@
 // importing the Android/iOS-only mapbox_maps_flutter package.
 import 'package:flutter/widgets.dart';
 
-import '../bidet/bidet_model.dart';
+import '../../data/models/bidet.dart';
 
 class MobileMapController {
   void flyTo(double lat, double lng, double zoom) {}

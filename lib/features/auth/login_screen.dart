@@ -1,16 +1,20 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
-import '../../services/auth_service.dart';
-import '../dashboard/dashboard_screen.dart';
-import '../map/map_screen.dart';
-import '../admin/admin_screen.dart';
-import 'signup_screen.dart';
+import '../../core/app_scope.dart';
+import '../../core/router.dart';
+import '../../data/auth_repository.dart';
 
 /// shadcn "login-01" block, adapted to Flutter via shadcn_ui.
 class LoginScreen extends StatefulWidget {
-  final bool isAdmin;
-  const LoginScreen({super.key, this.isAdmin = false});
+  /// Requires the account to hold the admin role.
+  final bool adminMode;
+
+  /// Where to land after signing in — set by the router when a guard bounced
+  /// the user here, so they resume what they were doing.
+  final String? redirectTo;
+
+  const LoginScreen({super.key, this.adminMode = false, this.redirectTo});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -19,84 +23,78 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _auth = AuthService();
   bool _loading = false;
   String? _error;
-  bool _navigated = false;
-  StreamSubscription<dynamic>? _authSub;
-
-  @override
-  void initState() {
-    super.initState();
-    // Route to the map when a session appears — this covers returning from the
-    // Google OAuth redirect (web reloads the page) and an existing session.
-    _authSub = _auth.authStateChanges.listen((_) => _maybeRouteToMap());
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeRouteToMap());
-  }
 
   @override
   void dispose() {
-    _authSub?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  // Admin login uses its own routing; everyone else lands on the dashboard.
-  void _maybeRouteToMap() {
-    if (_navigated || widget.isAdmin || !mounted) return;
-    if (_auth.currentUser == null) return;
-    _navigated = true;
-    Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
-  }
+  // Routing on a restored or new session is handled centrally by the router's
+  // redirect, which listens to SessionController — so this screen no longer
+  // keeps its own auth subscription or pushes replacements itself. That also
+  // covers returning from the Google OAuth redirect.
 
   Future<void> _login() async {
+    // Resolved before the first await so no BuildContext crosses an async gap.
+    final auth = context.auth;
+    final router = GoRouter.of(context);
+
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      await _auth.signIn(
+      final user = await auth.signIn(
         _emailController.text.trim(),
-        _passwordController.text.trim(),
+        _passwordController.text,
       );
 
-      if (!mounted) return;
-
-      if (widget.isAdmin) {
-        final admin = await _auth.isAdmin();
+      if (widget.adminMode && !user.isAdmin) {
+        await auth.signOut();
         if (!mounted) return;
-        if (!admin) {
-          await _auth.signOut();
-          setState(() {
-            _error = 'This account does not have admin access.';
-            _loading = false;
-          });
-          return;
-        }
-        _navigated = true;
-        Navigator.pushReplacement(context,
-            MaterialPageRoute(builder: (_) => const AdminScreen()));
-      } else {
-        _maybeRouteToMap();
+        setState(() {
+          _error = 'This account does not have admin access.';
+          _loading = false;
+        });
+        return;
       }
-    } catch (e) {
+
+      if (!mounted) return;
+      router.go(widget.redirectTo ??
+          (user.isAdmin && widget.adminMode ? Routes.admin : Routes.dashboard));
+    } on AuthFailure catch (e) {
+      // Surfaces the real reason. The previous blanket catch reported every
+      // failure — network errors and a missing profile row included — as
+      // "Invalid email or password."
+      if (!mounted) return;
       setState(() {
-        _error = 'Invalid email or password.';
+        _error = e.message;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Something went wrong. Check your connection and try again.';
         _loading = false;
       });
     }
   }
 
   Future<void> _googleSignIn() async {
+    final auth = context.auth;
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      await _auth.signInWithGoogle();
-      // Web: the page redirects away now. Mobile: returns via the auth
-      // listener. Nothing else to do here.
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      await auth.signInWithGoogle();
+      // Web: the page redirects away now. Mobile: the session arrives through
+      // SessionController and the router redirect takes it from there.
+    } on AuthFailure catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      messenger.showSnackBar(
         const SnackBar(content: Text('Could not start Google sign-in.')),
       );
     }
@@ -123,10 +121,10 @@ class _LoginScreenState extends State<LoginScreen> {
               child: ShadCard(
                 width: double.infinity,
                 title: Text(
-                  widget.isAdmin ? 'Admin login' : 'Login to your account',
+                  widget.adminMode ? 'Admin login' : 'Login to your account',
                 ),
                 description: Text(
-                  widget.isAdmin
+                  widget.adminMode
                       ? 'Enter your admin credentials below to continue'
                       : 'Enter your email below to login to your account',
                 ),
@@ -176,7 +174,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         onPressed: _googleSignIn,
                         child: const Text('Login with Google'),
                       ),
-                      if (!widget.isAdmin) ...[
+                      if (!widget.adminMode) ...[
                         const SizedBox(height: 18),
                         Center(
                           child: Row(
@@ -187,11 +185,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 style: theme.textTheme.muted,
                               ),
                               GestureDetector(
-                                onTap: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) => const SignupScreen()),
-                                ),
+                                onTap: () => context.push(Routes.signup),
                                 child: Text(
                                   'Sign up',
                                   style: theme.textTheme.small.copyWith(
@@ -205,11 +199,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 6),
                         Center(
                           child: ShadButton.link(
-                            onPressed: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const MapScreen()),
-                            ),
+                            onPressed: () => context.go(Routes.map),
                             child: const Text('Browse as guest'),
                           ),
                         ),

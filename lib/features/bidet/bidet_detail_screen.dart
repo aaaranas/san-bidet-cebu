@@ -1,131 +1,300 @@
-import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../services/supabase_service.dart';
-import 'bidet_model.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
-class BidetDetailScreen extends StatelessWidget {
+import '../../core/app_scope.dart';
+import '../../core/router.dart';
+import '../../core/theme.dart';
+import '../../data/models/bidet.dart';
+import '../../widgets/app_widgets.dart';
+
+/// Passed via GoRouter `extra` when navigating from the map, so the screen can
+/// paint immediately instead of showing a spinner for data we already hold.
+/// Absent on a cold deep link, where the bidet is fetched by id.
+class BidetDetailArgs {
+  const BidetDetailArgs({required this.bidet, required this.distance});
+
   final Bidet bidet;
   final String distance;
+}
 
+class BidetDetailScreen extends StatefulWidget {
   const BidetDetailScreen({
     super.key,
-    required this.bidet,
-    required this.distance,
+    required this.bidetId,
+    this.initial,
   });
 
-  static const _green = Color(0xFF0F172A);
+  final String bidetId;
+  final BidetDetailArgs? initial;
+
+  @override
+  State<BidetDetailScreen> createState() => _BidetDetailScreenState();
+}
+
+class _BidetDetailScreenState extends State<BidetDetailScreen> {
+  Bidet? _bidet;
+  Object? _error;
+  bool _loading = false;
+  bool _submittingRating = false;
+
+  String get _distance => widget.initial?.distance ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    _bidet = widget.initial?.bidet;
+    if (_bidet == null) _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final bidet = await context.bidets.fetchById(widget.bidetId);
+      if (!mounted) return;
+      setState(() {
+        _bidet = bidet;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _rate() async {
+    final session = context.session;
+    if (!session.isSignedIn) {
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Sign in to rate'),
+          content: const Text(
+            'Ratings are tied to your account so each person rates a bidet '
+            'once. Sign in to continue.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Not now'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Sign in'),
+            ),
+          ],
+        ),
+      );
+      if (go == true && mounted) context.push(Routes.login);
+      return;
+    }
+
+    final rating = await showModalBottomSheet<BidetRating>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const _RatingSheet(),
+    );
+    if (rating == null || !mounted) return;
+
+    final repo = context.bidets;
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() => _submittingRating = true);
+    try {
+      await repo.rate(widget.bidetId, rating);
+      final updated = await repo.fetchById(widget.bidetId);
+      if (!mounted) return;
+      setState(() {
+        _bidet = updated;
+        _submittingRating = false;
+      });
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Thanks — your rating was saved.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submittingRating = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().contains('duplicate')
+                ? 'You have already rated this bidet.'
+                : 'Could not save your rating. Please try again.',
+          ),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final bidet = _bidet;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(bidet.placeName,
-            style: const TextStyle(color: Colors.white, fontSize: 16)),
-        backgroundColor: _green,
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
+        title: Text(bidet?.placeName ?? 'Bidet'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () =>
+              context.canPop() ? context.pop() : context.go(Routes.map),
+        ),
       ),
-      body: ListView(
+      body: switch ((bidet, _loading, _error)) {
+        (_, true, _) => const Center(child: CircularProgressIndicator()),
+        (null, _, != null) => EmptyState(
+            icon: Icons.search_off,
+            title: 'Bidet not found',
+            message: 'It may have been removed.',
+            action: FilledButton(
+              onPressed: () => context.go(Routes.map),
+              child: const Text('Back to map'),
+            ),
+          ),
+        (null, _, _) => const Center(child: CircularProgressIndicator()),
+        (final b?, _, _) => _content(context, b),
+      },
+    );
+  }
+
+  Widget _content(BuildContext context, Bidet bidet) {
+    final p = context.shad;
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
         children: [
           if (bidet.imageUrl != null)
             CachedNetworkImage(
               imageUrl: bidet.imageUrl!,
-              height: 200,
+              height: 220,
               width: double.infinity,
               fit: BoxFit.cover,
               placeholder: (_, __) => Container(
-                height: 200,
-                color: Colors.grey.shade200,
+                height: 220,
+                color: p.muted,
                 child: const Center(child: CircularProgressIndicator()),
               ),
               errorWidget: (_, __, ___) => Container(
-                height: 200,
-                color: Colors.grey.shade100,
-                child: Icon(Icons.image_not_supported,
-                    color: Colors.grey.shade400, size: 40),
+                height: 220,
+                color: p.muted,
+                child: Icon(
+                  Icons.image_not_supported_outlined,
+                  color: p.mutedForeground,
+                  size: 40,
+                ),
               ),
             ),
           Container(
-            color: _green,
+            color: p.primary,
             padding: EdgeInsets.fromLTRB(
-                20, bidet.imageUrl != null ? 16 : 0, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(bidet.floor,
-                    style: const TextStyle(
-                        color: Colors.white70, fontSize: 13)),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Text(
-                      bidet.rating.toStringAsFixed(1),
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w700),
+              Insets.xl,
+              bidet.imageUrl != null ? Insets.lg : Insets.sm,
+              Insets.xl,
+              Insets.xl,
+            ),
+            child: CenteredBody(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    bidet.floor,
+                    style: TextStyle(
+                      color: p.primaryForeground.withValues(alpha: 0.75),
+                      fontSize: 13,
                     ),
-                    const SizedBox(width: 8),
-                    _starRow(bidet.rating),
-                    const SizedBox(width: 8),
-                    Text('${bidet.ratingCount} ratings',
-                        style: const TextStyle(
-                            color: Colors.white60, fontSize: 12)),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    _badge(bidet.typeLabel),
-                    if (distance.isNotEmpty) _badge(distance),
-                    _badge('Free'),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: Insets.md),
+                  Row(
+                    children: [
+                      Text(
+                        bidet.ratingCount == 0
+                            ? '—'
+                            : bidet.rating.toStringAsFixed(1),
+                        style: TextStyle(
+                          color: p.primaryForeground,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: Insets.sm),
+                      StarRow(rating: bidet.rating),
+                      const SizedBox(width: Insets.sm),
+                      Flexible(
+                        child: Text(
+                          bidet.ratingCount == 1
+                              ? '1 rating'
+                              : '${bidet.ratingCount} ratings',
+                          style: TextStyle(
+                            color: p.primaryForeground.withValues(alpha: 0.7),
+                            fontSize: 12,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: Insets.sm,
+                    runSpacing: Insets.sm,
+                    children: [
+                      _Badge(bidet.typeLabel),
+                      if (_distance.isNotEmpty) _Badge(_distance),
+                      const _Badge('Free'),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (bidet.ratingCount > 0) ...[
-                  const Text('Ratings breakdown',
-                      style: TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 12),
-                  _ratingBar('Cleanliness', bidet.cleanlinessRating),
-                  _ratingBar('Water Pressure', bidet.pressureRating),
-                  _ratingBar('Accessibility', bidet.accessibilityRating),
-                  _ratingBar('Privacy', bidet.privacyRating),
-                  const SizedBox(height: 20),
-                  const Divider(height: 1),
-                  const SizedBox(height: 20),
-                ],
-                _detailRow('Location', bidet.floor),
-                _detailRow('Type', bidet.typeLabel),
-                _detailRow('Added',
-                    '${bidet.createdAt.day}/${bidet.createdAt.month}/${bidet.createdAt.year}'),
-                _detailRow('Total ratings', '${bidet.ratingCount}'),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => _showRatingDialog(context),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+          CenteredBody(
+            child: Padding(
+              padding: const EdgeInsets.all(Insets.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (bidet.ratingCount > 0) ...[
+                    Text('Ratings breakdown', style: context.texts.titleMedium),
+                    const SizedBox(height: Insets.md),
+                    _RatingBar('Cleanliness', bidet.cleanlinessRating),
+                    _RatingBar('Water pressure', bidet.pressureRating),
+                    _RatingBar('Accessibility', bidet.accessibilityRating),
+                    _RatingBar('Privacy', bidet.privacyRating),
+                    const SizedBox(height: Insets.xl),
+                    const Divider(height: 1),
+                    const SizedBox(height: Insets.xl),
+                  ],
+                  _DetailRow('Location', bidet.floor),
+                  _DetailRow('Type', bidet.typeLabel),
+                  _DetailRow('Added', _formatDate(bidet.createdAt)),
+                  _DetailRow('Total ratings', '${bidet.ratingCount}'),
+                  const SizedBox(height: Insets.xl),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _submittingRating ? null : _rate,
+                      child: _submittingRating
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Rate this bidet'),
                     ),
-                    child: const Text('Rate this bidet',
-                        style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ],
@@ -133,178 +302,193 @@ class BidetDetailScreen extends StatelessWidget {
     );
   }
 
-  Widget _ratingBar(String label, double value) {
+  static String _formatDate(DateTime d) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${d.day} ${months[d.month - 1]} ${d.year}';
+  }
+}
+
+class _Badge extends StatelessWidget {
+  const _Badge(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.shad;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: Insets.xs),
+      decoration: BoxDecoration(
+        color: p.primaryForeground.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(Radii.pill),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(color: p.primaryForeground, fontSize: 11),
+      ),
+    );
+  }
+}
+
+class _RatingBar extends StatelessWidget {
+  const _RatingBar(this.label, this.value);
+
+  final String label;
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.shad;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         children: [
           SizedBox(
-            width: 120,
-            child: Text(label,
-                style:
-                    const TextStyle(fontSize: 13, color: Colors.grey)),
+            width: 116,
+            child: Text(label, style: context.texts.bodyMedium),
           ),
           Expanded(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(Radii.xs),
               child: LinearProgressIndicator(
-                value: value / 5,
-                backgroundColor: Colors.grey.shade200,
-                valueColor:
-                    const AlwaysStoppedAnimation(_green),
+                value: (value / 5).clamp(0.0, 1.0),
+                backgroundColor: p.border,
+                valueColor: AlwaysStoppedAnimation(p.primary),
                 minHeight: 8,
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          Text(value.toStringAsFixed(1),
-              style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: _green)),
+          const SizedBox(width: Insets.sm),
+          SizedBox(
+            width: 26,
+            child: Text(
+              value.toStringAsFixed(1),
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: p.primary,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _starRow(double rating) {
-    return Row(
-      children: List.generate(5, (i) {
-        return Icon(
-          i < rating.round()
-              ? Icons.star_rounded
-              : Icons.star_outline_rounded,
-          color: Colors.amber.shade300,
-          size: 18,
-        );
-      }),
-    );
-  }
+class _DetailRow extends StatelessWidget {
+  const _DetailRow(this.label, this.value);
 
-  Widget _badge(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(label,
-          style: const TextStyle(color: Colors.white, fontSize: 11)),
-    );
-  }
+  final String label;
+  final String value;
 
-  Widget _detailRow(String label, String value) {
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style:
-                  const TextStyle(fontSize: 13, color: Colors.grey)),
-          Text(value,
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600)),
+          Text(label, style: context.texts.bodyMedium),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: context.texts.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
+}
 
-  void _showRatingDialog(BuildContext context) {
-    int cleanliness = 0;
-    int pressure = 0;
-    int accessibility = 0;
-    int privacy = 0;
+class _RatingSheet extends StatefulWidget {
+  const _RatingSheet();
 
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Rate this bidet',
-              style:
-                  TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          content: Column(
+  @override
+  State<_RatingSheet> createState() => _RatingSheetState();
+}
+
+class _RatingSheetState extends State<_RatingSheet> {
+  int _cleanliness = 0;
+  int _pressure = 0;
+  int _accessibility = 0;
+  int _privacy = 0;
+
+  bool get _complete =>
+      _cleanliness > 0 && _pressure > 0 && _accessibility > 0 && _privacy > 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          Insets.xl,
+          0,
+          Insets.xl,
+          Insets.xl + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: CenteredBody(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _criteriaRow('Cleanliness', cleanliness,
-                  (v) => setDialogState(() => cleanliness = v)),
-              const SizedBox(height: 12),
-              _criteriaRow('Water Pressure', pressure,
-                  (v) => setDialogState(() => pressure = v)),
-              const SizedBox(height: 12),
-              _criteriaRow('Accessibility', accessibility,
-                  (v) => setDialogState(() => accessibility = v)),
-              const SizedBox(height: 12),
-              _criteriaRow('Privacy', privacy,
-                  (v) => setDialogState(() => privacy = v)),
+              Text('Rate this bidet', style: context.texts.titleLarge),
+              const SizedBox(height: Insets.xs),
+              Text(
+                'All four criteria are required.',
+                style: context.texts.bodyMedium,
+              ),
+              const SizedBox(height: Insets.lg),
+              StarSelector(
+                label: 'Cleanliness',
+                value: _cleanliness,
+                onChanged: (v) => setState(() => _cleanliness = v),
+              ),
+              StarSelector(
+                label: 'Water pressure',
+                value: _pressure,
+                onChanged: (v) => setState(() => _pressure = v),
+              ),
+              StarSelector(
+                label: 'Accessibility',
+                value: _accessibility,
+                onChanged: (v) => setState(() => _accessibility = v),
+              ),
+              StarSelector(
+                label: 'Privacy',
+                value: _privacy,
+                onChanged: (v) => setState(() => _privacy = v),
+              ),
+              const SizedBox(height: Insets.xl),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: !_complete
+                      ? null
+                      : () => Navigator.pop(
+                            context,
+                            BidetRating(
+                              cleanliness: _cleanliness.toDouble(),
+                              pressure: _pressure.toDouble(),
+                              accessibility: _accessibility.toDouble(),
+                              privacy: _privacy.toDouble(),
+                            ),
+                          ),
+                  child: const Text('Submit rating'),
+                ),
+              ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: (cleanliness == 0 ||
-                      pressure == 0 ||
-                      accessibility == 0 ||
-                      privacy == 0)
-                  ? null
-                  : () async {
-                      await SupabaseService().rateBidet(
-                        bidet.id,
-                        cleanliness.toDouble(),
-                        pressure.toDouble(),
-                        accessibility.toDouble(),
-                        privacy.toDouble(),
-                      );
-                      if (ctx.mounted) Navigator.pop(ctx);
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Rating submitted!')),
-                        );
-                      }
-                    },
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: _green,
-                  foregroundColor: Colors.white),
-              child: const Text('Submit'),
-            ),
-          ],
         ),
       ),
-    );
-  }
-
-  Widget _criteriaRow(
-      String label, int selected, ValueChanged<int> onChanged) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 96,
-          child: Text(label,
-              style:
-                  const TextStyle(fontSize: 12, color: Colors.grey)),
-        ),
-        Expanded(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: List.generate(5, (i) {
-              return GestureDetector(
-                onTap: () => onChanged(i + 1),
-                child: Icon(
-                  i < selected
-                      ? Icons.star_rounded
-                      : Icons.star_outline_rounded,
-                  color: Colors.amber.shade500,
-                  size: 26,
-                ),
-              );
-            }),
-          ),
-        ),
-      ],
     );
   }
 }

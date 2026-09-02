@@ -1,12 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
-import '../../services/auth_service.dart';
-import '../../services/supabase_service.dart';
-import '../auth/login_screen.dart';
-import '../bidet/bidet_model.dart';
-import '../bidet/bidet_add_screen.dart';
-import '../map/map_screen.dart';
+import 'package:go_router/go_router.dart';
+import '../../core/app_scope.dart';
+import '../../core/router.dart';
+import '../../data/models/bidet.dart';
 
 /// shadcn "dashboard-01" adapted to Flutter: section stat cards, a criteria
 /// breakdown, a 6-month bar chart, and a tabbed data table — fed by the live
@@ -19,8 +17,6 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final _auth = AuthService();
-  final _service = SupabaseService();
   StreamSubscription<List<Bidet>>? _sub;
 
   List<Bidet> _bidets = [];
@@ -30,11 +26,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _sub = _service.getBidets().listen((b) {
-      if (!mounted) return;
-      setState(() {
-        _bidets = b;
-        _loaded = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sub = context.bidets.watchApproved().listen((b) {
+        if (!mounted) return;
+        setState(() {
+          _bidets = b;
+          _loaded = true;
+        });
+      }, onError: (_) {
+        if (mounted) setState(() => _loaded = true);
       });
     });
   }
@@ -149,7 +149,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _header(ShadThemeData theme) {
-    final name = _auth.currentUsername ?? 'there';
+    final name = context.session.user?.displayName ?? 'there';
     return Row(
       children: [
         Expanded(
@@ -165,10 +165,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         ShadButton.ghost(
           onPressed: () async {
-            await _auth.signOut();
-            if (!mounted) return;
-            Navigator.pushReplacement(context,
-                MaterialPageRoute(builder: (_) => const LoginScreen()));
+            // The router's redirect drops us off this guarded route as soon as
+            // the session clears, so no manual navigation is needed.
+            await context.session.signOut();
           },
           child: const Text('Sign out'),
         ),
@@ -400,16 +399,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Expanded(
           child: ShadButton(
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const MapScreen())),
+            onPressed: () => context.push(Routes.map),
             child: const Text('Open the map'),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: ShadButton.outline(
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const BidetAddScreen())),
+            onPressed: () => context.push(Routes.addBidet),
             child: const Text('Add a bidet'),
           ),
         ),

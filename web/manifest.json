@@ -1,11 +1,11 @@
 {
-    "name": "san_bidet_cebu",
-    "short_name": "san_bidet_cebu",
+    "name": "SanBidet Cebu",
+    "short_name": "SanBidet",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0E4F2A",
+    "theme_color": "#1A6B3C",
+    "description": "Crowdsourced bidet locations across Cebu — mapped, rated and verified by the community.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

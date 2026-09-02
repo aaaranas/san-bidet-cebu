@@ -1,8 +1,9 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
-import '../../services/auth_service.dart';
-import '../dashboard/dashboard_screen.dart';
+import '../../core/app_scope.dart';
+import '../../core/router.dart';
+import '../../data/auth_repository.dart';
 
 /// shadcn "signup-01" block, adapted to Flutter via shadcn_ui.
 class SignupScreen extends StatefulWidget {
@@ -17,24 +18,15 @@ class _SignupScreenState extends State<SignupScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();
-  final _auth = AuthService();
-
   bool _loading = false;
   String? _error;
-  bool _navigated = false;
-  StreamSubscription<dynamic>? _authSub;
 
-  @override
-  void initState() {
-    super.initState();
-    // Covers returning from the Google OAuth redirect / an existing session.
-    _authSub = _auth.authStateChanges.listen((_) => _maybeRouteToMap());
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeRouteToMap());
-  }
+  // Routing on a new or restored session is handled by the router's redirect,
+  // which listens to SessionController — including the return leg of the
+  // Google OAuth flow.
 
   @override
   void dispose() {
-    _authSub?.cancel();
     _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -42,23 +34,18 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
-  void _maybeRouteToMap() {
-    if (_navigated || !mounted) return;
-    if (_auth.currentUser == null) return;
-    _navigated = true;
-    Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
-  }
-
   int _passwordStrength(String password) {
     if (password.isEmpty) return 0;
     int score = 0;
     if (password.length >= 8) score++;
-    if (RegExp(r'[a-z]').hasMatch(password)) score++;
-    if (RegExp(r'[A-Z]').hasMatch(password)) score++;
+    if (password.length >= 12) score++;
+    if (RegExp(r'[a-z]').hasMatch(password) &&
+        RegExp(r'[A-Z]').hasMatch(password)) {
+      score++;
+    }
     if (RegExp(r'[0-9]').hasMatch(password)) score++;
-    if (RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)) score++;
-    return score;
+    if (RegExp(r'[!@#$%^&*(),.?":{}|<>_\-]').hasMatch(password)) score++;
+    return score.clamp(0, 5);
   }
 
   Future<void> _signup() async {
@@ -80,30 +67,41 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
+    final auth = context.auth;
+    final router = GoRouter.of(context);
+
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      await _auth.signUp(email, password, username: username);
+      await auth.signUp(email, password, username: username);
       if (!mounted) return;
-      _navigated = true;
-      Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
-    } catch (e) {
+      router.go(Routes.dashboard);
+    } on AuthFailure catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = 'Could not create account. Try again.';
+        _error = e.message;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Could not create your account. Please try again.';
         _loading = false;
       });
     }
   }
 
   Future<void> _googleSignIn() async {
+    final auth = context.auth;
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      await _auth.signInWithGoogle();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      await auth.signInWithGoogle();
+    } on AuthFailure catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      messenger.showSnackBar(
         const SnackBar(content: Text('Could not start Google sign-in.')),
       );
     }
@@ -194,7 +192,7 @@ class _SignupScreenState extends State<SignupScreen> {
                               style: theme.textTheme.muted,
                             ),
                             GestureDetector(
-                              onTap: () => Navigator.pop(context),
+                              onTap: () => context.canPop() ? context.pop() : context.go(Routes.login),
                               child: Text(
                                 'Login',
                                 style: theme.textTheme.small.copyWith(

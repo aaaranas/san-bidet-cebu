@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
@@ -5,12 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import '../../services/supabase_service.dart';
-import '../../services/location_service.dart';
+import 'package:go_router/go_router.dart';
+import '../../core/app_config.dart';
+import '../../core/app_scope.dart';
+import '../../core/router.dart';
+import '../../data/models/bidet.dart';
 import '../../widgets/bidet_card.dart';
-import '../bidet/bidet_add_screen.dart';
 import '../bidet/bidet_detail_screen.dart';
-import '../bidet/bidet_model.dart';
 import 'mobile_map.dart';
 import 'web_map_interop.dart';
 
@@ -32,10 +34,9 @@ class _MapScreenState extends State<MapScreen> {
   final _mapController = MapController();
   final _webController = WebMapController();
   final _mobileController = MobileMapController();
-  final _supabaseService = SupabaseService();
-  final _locationService = LocationService();
   final _searchController = TextEditingController();
 
+  StreamSubscription<List<Bidet>>? _bidetSub;
   Position? _userPosition;
   List<Bidet> _bidets = [];
   String? _selectedBidetId;
@@ -91,51 +92,65 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchLocation();
-    _loadBidets();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchLocation();
+      _subscribe();
+    });
   }
 
   @override
   void dispose() {
+    // The old screen never held the subscription, so its 5-second poll kept
+    // running after the user navigated away.
+    _bidetSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadBidets() async {
-    _supabaseService.getBidets().listen((bidets) {
+  void _subscribe() {
+    _bidetSub = context.bidets.watchApproved().listen((bidets) {
       if (mounted) setState(() => _bidets = bidets);
     });
   }
 
   Future<void> _fetchLocation() async {
-    final pos = await _locationService.getCurrentPosition();
-    if (mounted) setState(() => _userPosition = pos);
+    final result = await context.location.getCurrentPosition();
+    if (!mounted) return;
+    if (result.ok) {
+      setState(() => _userPosition = result.position);
+    } else {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(result.message)));
+    }
   }
 
   String _distance(Bidet bidet) {
     if (_userPosition == null) return '';
-    final meters = _locationService.distanceBetween(
+    final meters = context.location.distanceBetween(
       LatLng(_userPosition!.latitude, _userPosition!.longitude),
       LatLng(bidet.latitude, bidet.longitude),
     );
-    return _locationService.formatDistance(meters);
+    return context.location.formatDistance(meters);
   }
 
   List<Bidet> _sortedByDistance(List<Bidet> bidets) {
-    if (_userPosition == null) return bidets;
-    final sorted = [...bidets];
-    sorted.sort((a, b) {
-      final da = _locationService.distanceBetween(
-        LatLng(_userPosition!.latitude, _userPosition!.longitude),
-        LatLng(a.latitude, a.longitude),
-      );
-      final db = _locationService.distanceBetween(
-        LatLng(_userPosition!.latitude, _userPosition!.longitude),
-        LatLng(b.latitude, b.longitude),
-      );
-      return da.compareTo(db);
-    });
-    return sorted;
+    final origin = _userPosition;
+    if (origin == null) return bidets;
+    // Decorate-sort-undecorate: the previous comparator recomputed both
+    // geodesic distances on every comparison.
+    final location = context.location;
+    final here = LatLng(origin.latitude, origin.longitude);
+    final decorated = bidets
+        .map((b) => (
+              bidet: b,
+              meters: location.distanceBetween(
+                here,
+                LatLng(b.latitude, b.longitude),
+              ),
+            ))
+        .toList()
+      ..sort((a, b) => a.meters.compareTo(b.meters));
+    return decorated.map((e) => e.bidet).toList();
   }
 
   List<Bidet> get _filtered {
@@ -145,7 +160,8 @@ class _MapScreenState extends State<MapScreen> {
     return sorted
         .where((b) =>
             b.placeName.toLowerCase().contains(q) ||
-            b.floor.toLowerCase().contains(q))
+            b.floor.toLowerCase().contains(q) ||
+            b.typeLabel.toLowerCase().contains(q))
         .toList();
   }
 
@@ -418,10 +434,7 @@ class _MapScreenState extends State<MapScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const BidetAddScreen()),
-        ),
+        onPressed: () => context.push(Routes.addBidet),
         backgroundColor: _green,
         foregroundColor: Colors.white,
         child: const Icon(Icons.add),
@@ -487,14 +500,14 @@ class _MapScreenState extends State<MapScreen> {
         TileLayer(
           key: ValueKey(_style.id),
           urlTemplate: _style.url,
-          userAgentPackageName: 'com.example.san_bidet_cebu',
+          userAgentPackageName: AppConfig.tileUserAgent,
           maxNativeZoom: 19,
         ),
         if (_style.overlayUrl != null)
           TileLayer(
             key: ValueKey('${_style.id}-overlay'),
             urlTemplate: _style.overlayUrl!,
-            userAgentPackageName: 'com.example.san_bidet_cebu',
+            userAgentPackageName: AppConfig.tileUserAgent,
             maxNativeZoom: 19,
           ),
         MarkerLayer(
@@ -520,7 +533,10 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                 ),
               ),
-            ..._bidets.map((bidet) {
+            // Markers follow the *filtered* list. Previously they came from
+            // the unfiltered set, so searching changed the list below while
+            // every pin stayed on the map.
+            ..._filtered.map((bidet) {
               final isSelected = _selectedBidetId == bidet.id;
               return Marker(
                 point: LatLng(bidet.latitude, bidet.longitude),
@@ -677,14 +693,9 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _openDetail(Bidet bidet) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => BidetDetailScreen(
-          bidet: bidet,
-          distance: _distance(bidet),
-        ),
-      ),
+    context.push(
+      Routes.bidet(bidet.id),
+      extra: BidetDetailArgs(bidet: bidet, distance: _distance(bidet)),
     );
   }
 }

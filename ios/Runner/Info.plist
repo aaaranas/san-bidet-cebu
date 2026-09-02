@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SanBidet uses your location to show bidets near you and to tag the ones you add.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SanBidet needs photo access so you can attach a picture to a bidet you submit.</string>
 </dict>
 </plist>
